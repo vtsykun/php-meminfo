@@ -164,8 +164,40 @@ The same thing is available from PHP:
 $path = meminfo_dump_process(12345, ['dir' => '/var/tmp', 'timeout' => 60]);
 ```
 
-It returns the path of the dump, or `false` with a warning explaining which
-step failed. Install the command with `make install-cli` (honours `PREFIX`).
+It returns the path of the finished dump. Install the command with
+`make install-cli` (honours `PREFIX`).
+
+### Errors
+
+Nothing is reported by a return value — every failure throws, so a dump cannot
+be mistaken for a success that happens to have produced no file:
+
+```php
+try {
+    $path = meminfo_dump_process($pid);
+} catch (InvalidArgumentException $e) {
+    // The call itself was wrong: a pid that cannot be signalled, an unknown
+    // signal name, no signal configured.
+} catch (RuntimeException $e) {
+    // The target or the environment: not handling the signal, no longer
+    // running, timed out, a result that is not the file it should be.
+}
+```
+
+`meminfo_dump()` throws `RuntimeException` as well, when the dump cannot be
+written to the stream it was given. Note that the stream then holds a partial
+dump: the bytes written before the failure are not rolled back, unlike the
+signal path, which writes to a temporary file and removes it.
+
+`dump-meminfo` maps the same distinction onto its exit code:
+
+| Exit | Meaning |
+|---|---|
+| 0 | The dump was written. Its path is on stdout, and nothing else is. |
+| 1 | A runtime failure — the target or the environment. |
+| 2 | Bad usage, from either the command's own argument parsing or the call. |
+
+The message always goes to stderr, so `$(dump-meminfo PID)` stays usable.
 
 ### Settings
 
@@ -227,11 +259,17 @@ idle.
 
 ```
 $ dump-meminfo 12345
-Warning: meminfo_dump_process(): process 12345 does not handle signal 23: ...
+meminfo_dump_process(): process 12345 does not handle signal 23: ...
+$ echo $?
+1
 ```
 
 `--force` skips the check. On a system without `/proc` the check is impossible,
 so only the default `SIGURG` is sent without it.
+
+`--force` does not, however, make the trigger send a signal whose default
+action would terminate or stop a target that is known not to handle it — there
+is no dump to be had that way, only a dead process.
 
 ### Limitations
 

@@ -99,10 +99,14 @@ PHP_FUNCTION(meminfo_dump);
 
 #ifndef PHP_WIN32
 /**
- * meminfo_dump_process(int $pid, array $options = []): string|false
+ * meminfo_dump_process(int $pid, array $options = []): string
  *
  * Signals another process to dump its memory and waits for the file. Works
  * from any build, including ones that cannot serve a dump themselves.
+ *
+ * Returns the path of the finished dump. Every failure throws instead of
+ * returning a value: InvalidArgumentException when the call itself is wrong,
+ * RuntimeException for anything about the target or the environment.
  */
 PHP_FUNCTION(meminfo_dump_process);
 #endif

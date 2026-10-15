@@ -371,6 +371,27 @@ function meminfo_test_cleanup(array $child, $pid = 0)
 }
 
 /**
+ * Call meminfo_dump_process() and report what happened either way.
+ *
+ * Every failure throws, so a test that wants to assert about a refusal needs
+ * the exception in hand rather than having it unwind the test. Note that `@`
+ * is no help here: it suppresses diagnostics, not exceptions.
+ *
+ * @param int   $pid
+ * @param array $options
+ *
+ * @return array with 'path' set on success and 'exception' set on failure
+ */
+function meminfo_test_try_dump_process($pid, array $options = array())
+{
+    try {
+        return array('path' => meminfo_dump_process($pid, $options), 'exception' => null);
+    } catch (Exception $exception) {
+        return array('path' => null, 'exception' => $exception);
+    }
+}
+
+/**
  * @param string $dumpFile
  *
  * @return array decoded items, or an empty array

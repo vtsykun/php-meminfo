@@ -49,11 +49,11 @@ CODE;
         $child = meminfo_test_spawn($busyCode, array('meminfo.dump_dir' => $readOnlyDir));
         $pid = meminfo_test_child_pid($child);
 
-        $result = $pid > 0
-            ? @meminfo_dump_process($pid, array('dir' => $readOnlyDir, 'timeout' => 3))
-            : false;
+        $attempt = $pid > 0
+            ? meminfo_test_try_dump_process($pid, array('dir' => $readOnlyDir, 'timeout' => 3))
+            : array('path' => null, 'exception' => null);
 
-        echo "unwritable directory refused: ", $result === false ? 'yes' : 'no', "\n";
+        echo "unwritable directory refused: ", $attempt['path'] === null ? 'yes' : 'no', "\n";
         echo "nothing written to the directory: ",
             count(glob($readOnlyDir . '/*')) === 0 ? 'yes' : 'no', "\n";
         echo "target stdout untouched: ", filesize($child['stdout']) === 0 ? 'yes' : 'no', "\n";
@@ -82,10 +82,10 @@ CODE;
         usleep(200000);
 
         $started = microtime(true);
-        $result = @meminfo_dump_process($pid, array('dir' => $dumpDir, 'timeout' => 2, 'force' => true));
+        $attempt = meminfo_test_try_dump_process($pid, array('dir' => $dumpDir, 'timeout' => 2, 'force' => true));
         $elapsed = microtime(true) - $started;
 
-        echo "a stopped target times out: ", $result === false ? 'yes' : 'no', "\n";
+        echo "a stopped target times out: ", $attempt['path'] === null ? 'yes' : 'no', "\n";
         echo "gave up near the timeout: ", ($elapsed >= 2 && $elapsed < 15) ? 'yes' : 'no', "\n";
         echo "no partial dump left behind: ",
             count(glob($dumpDir . '/*.tmp')) === 0 ? 'yes' : 'no', "\n";
@@ -111,10 +111,10 @@ CODE;
         exec('sh -c ' . escapeshellarg('(sleep 1; kill -9 ' . (int) $pid . ') > /dev/null 2>&1 &'));
 
         $started = microtime(true);
-        $result = @meminfo_dump_process($pid, array('dir' => $dumpDir, 'timeout' => 25, 'force' => true));
+        $attempt = meminfo_test_try_dump_process($pid, array('dir' => $dumpDir, 'timeout' => 25, 'force' => true));
         $elapsed = microtime(true) - $started;
 
-        echo "a vanished target is reported: ", $result === false ? 'yes' : 'no', "\n";
+        echo "a vanished target is reported: ", $attempt['path'] === null ? 'yes' : 'no', "\n";
         echo "failed without waiting out the timeout: ", $elapsed < 20 ? 'yes' : 'no', "\n";
         echo "no partial dump left behind: ",
             count(glob($dumpDir . '/*.tmp')) === 0 ? 'yes' : 'no', "\n";
@@ -159,16 +159,16 @@ CODE
         $child = meminfo_test_spawn($code, array('meminfo.dump_dir' => $dumpDir));
         $pid = meminfo_test_child_pid($child);
 
-        $result = $pid > 0
-            ? @meminfo_dump_process($pid, array('dir' => $dumpDir, 'timeout' => 20))
-            : false;
+        $attempt = $pid > 0
+            ? meminfo_test_try_dump_process($pid, array('dir' => $dumpDir, 'timeout' => 20))
+            : array('path' => null, 'exception' => null);
 
-        echo "a target blocked in $label can be dumped: ", $result === false ? 'no' : 'yes', "\n";
+        echo "a target blocked in $label can be dumped: ", $attempt['path'] === null ? 'no' : 'yes', "\n";
 
-        if ($result !== false) {
-            $items = meminfo_test_items($result);
+        if ($attempt['path'] !== null) {
+            $items = meminfo_test_items($attempt['path']);
             echo "its dump is valid: ", empty($items) ? 'no' : 'yes', "\n";
-            unlink($result);
+            unlink($attempt['path']);
         } else {
             echo "its dump is valid: no\n";
         }

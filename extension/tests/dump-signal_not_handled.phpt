@@ -31,20 +31,33 @@ CODE;
 
     if ($pid > 0) {
         $started = microtime(true);
-        $result = meminfo_dump_process($pid, array('timeout' => 5));
+        $thrown = null;
+
+        try {
+            meminfo_dump_process($pid, array('timeout' => 5));
+        } catch (Exception $exception) {
+            $thrown = $exception;
+        }
+
         $elapsed = microtime(true) - $started;
 
-        echo "result: ", var_export($result, true), "\n";
+        echo "exception class: ", $thrown === null ? '(none thrown)' : get_class($thrown), "\n";
+        echo "message names the signal: ",
+            ($thrown !== null && strpos($thrown->getMessage(), 'does not handle signal') !== false)
+                ? 'yes' : 'no', "\n";
+        echo "message names the pid: ",
+            ($thrown !== null && strpos($thrown->getMessage(), (string) $pid) !== false)
+                ? 'yes' : 'no', "\n";
         echo "refused without waiting: ", $elapsed < 2 ? 'yes' : 'no', "\n";
         echo "target still alive: ", file_exists('/proc/' . $pid . '/status') ? 'yes' : 'no', "\n";
     }
 
     meminfo_test_cleanup($child, $pid);
 ?>
---EXPECTF--
+--EXPECT--
 target started: yes
-
-Warning: meminfo_dump_process(): process %d does not handle signal %d: meminfo is not loaded, the target is PHP 7.0 or a ZTS build, or no request is running. Pass "force" => true to send it anyway in %s on line %d
-result: false
+exception class: RuntimeException
+message names the signal: yes
+message names the pid: yes
 refused without waiting: yes
 target still alive: yes

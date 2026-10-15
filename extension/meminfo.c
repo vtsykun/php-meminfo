@@ -31,13 +31,16 @@
 #include "SAPI.h"
 #include "zend_API.h"
 #include "zend_object_handlers.h"
+#include "zend_exceptions.h"
+#include "ext/spl/spl_exceptions.h"
 
 #if PHP_VERSION_ID >= 80000
 ZEND_BEGIN_ARG_INFO_EX(arginfo_meminfo_dump, 0, 0, 1)
     ZEND_ARG_INFO(0, output_stream)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_meminfo_dump_process, 0, 0, 1)
+// Always a string: every failure path throws instead of returning a value.
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_meminfo_dump_process, 0, 1, IS_STRING, 0)
     ZEND_ARG_INFO(0, pid)
     ZEND_ARG_INFO(0, options)
 ZEND_END_ARG_INFO()
@@ -1261,7 +1264,10 @@ PHP_FUNCTION(meminfo_dump)
     php_stream *stream;
     meminfo_writer *writer;
     zend_execute_data *caller_frame;
+    int failed;
 
+    // No throw here: PHP 8 has already thrown a TypeError or ArgumentCountError
+    // of its own by this point, and 7.x has emitted a warning.
     if (zend_parse_parameters(ZEND_NUM_ARGS(), "r", &zval_stream) == FAILURE) {
         return;
     }
@@ -1272,6 +1278,8 @@ PHP_FUNCTION(meminfo_dump)
     // memory_limit of the process being dumped.
     writer = malloc(sizeof(*writer));
     if (writer == NULL) {
+        zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+            "meminfo_dump(): cannot allocate the dump buffer");
         return;
     }
 
@@ -1288,7 +1296,18 @@ PHP_FUNCTION(meminfo_dump)
     // walking EG(symbol_table) separately would only repeat work.
     meminfo_dump_to_writer(writer, caller_frame, 0);
 
+    failed = writer->err;
     free(writer);
+
+    if (failed) {
+        // Reported rather than swallowed: a dump that stops halfway leaves
+        // invalid JSON behind, and a caller that is told nothing will go on to
+        // analyse it as if it were complete. Unlike the signal path, which
+        // unlinks its temporary file, there is nothing to roll back here — the
+        // bytes are already in the caller's stream.
+        zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+            "meminfo_dump(): writing the dump failed; the stream holds a partial dump");
+    }
 }
 
 /**
@@ -2428,8 +2447,9 @@ PHP_FUNCTION(meminfo_dump_process)
         option = zend_hash_str_find(option_table, "dir", sizeof("dir") - 1);
         if (option != NULL && Z_TYPE_P(option) == IS_STRING && Z_STRLEN_P(option) > 0) {
             if (Z_STRLEN_P(option) >= sizeof(dir_buffer)) {
-                php_error_docref(NULL, E_WARNING, "dir is too long");
-                RETURN_FALSE;
+                zend_throw_exception_ex(spl_ce_InvalidArgumentException, 0,
+                    "meminfo_dump_process(): dir is too long");
+                return;
             }
             memcpy(dir_buffer, Z_STRVAL_P(option), Z_STRLEN_P(option) + 1);
             dir = dir_buffer;
@@ -2441,9 +2461,9 @@ PHP_FUNCTION(meminfo_dump_process)
 
             if (Z_TYPE_P(option) == IS_STRING) {
                 if (!meminfo_parse_signal(Z_STRVAL_P(option), &parsed)) {
-                    php_error_docref(NULL, E_WARNING,
-                        "unknown signal \"%s\"", Z_STRVAL_P(option));
-                    RETURN_FALSE;
+                    zend_throw_exception_ex(spl_ce_InvalidArgumentException, 0,
+                        "meminfo_dump_process(): unknown signal \"%s\"", Z_STRVAL_P(option));
+                    return;
                 }
             } else {
                 parsed = (int) zval_get_long(option);
@@ -2464,23 +2484,24 @@ PHP_FUNCTION(meminfo_dump_process)
     }
 
     if (pid_arg <= 0) {
-        php_error_docref(NULL, E_WARNING, "pid must be greater than 0");
-        RETURN_FALSE;
+        zend_throw_exception_ex(spl_ce_InvalidArgumentException, 0,
+            "meminfo_dump_process(): pid must be greater than 0");
+        return;
     }
 
     pid = (pid_t) pid_arg;
 
     if (pid == getpid()) {
-        php_error_docref(NULL, E_WARNING,
-            "cannot dump the calling process; use meminfo_dump()");
-        RETURN_FALSE;
+        zend_throw_exception_ex(spl_ce_InvalidArgumentException, 0,
+            "meminfo_dump_process(): cannot dump the calling process; use meminfo_dump()");
+        return;
     }
 
     if (signal_number <= 0) {
-        php_error_docref(NULL, E_WARNING,
-            "no dump signal configured; set meminfo.dump_signal "
+        zend_throw_exception_ex(spl_ce_InvalidArgumentException, 0,
+            "meminfo_dump_process(): no dump signal configured; set meminfo.dump_signal "
             "or pass the \"signal\" option");
-        RETURN_FALSE;
+        return;
     }
 
     if (timeout_seconds < 1) {
@@ -2497,21 +2518,21 @@ PHP_FUNCTION(meminfo_dump_process)
         // only terminate or stop the target. Allowing it would turn a
         // diagnostic function into a way to kill arbitrary processes, which is
         // a capability this extension has no business providing.
-        php_error_docref(NULL, E_WARNING,
-            "process %d does not handle signal %d, whose default action would "
-            "terminate or stop it; refusing to send it. The target may not have meminfo "
-            "loaded, may be a PHP 7.0 or ZTS build, or may not be running a request",
+        zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+            "meminfo_dump_process(): process %d does not handle signal %d, whose default "
+            "action would terminate or stop it; refusing to send it. The target may not have "
+            "meminfo loaded, may be a PHP 7.0 or ZTS build, or may not be running a request",
             (int) pid, signal_number);
-        RETURN_FALSE;
+        return;
     }
 
     if (caught == 0 && !force) {
-        php_error_docref(NULL, E_WARNING,
-            "process %d does not handle signal %d: meminfo is not "
+        zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+            "meminfo_dump_process(): process %d does not handle signal %d: meminfo is not "
             "loaded, the target is PHP 7.0 or a ZTS build, or no request is running. "
             "Pass \"force\" => true to send it anyway",
             (int) pid, signal_number);
-        RETURN_FALSE;
+        return;
     }
 
     if (caught < 0 && !force) {
@@ -2523,12 +2544,12 @@ PHP_FUNCTION(meminfo_dump_process)
         // Sending the default is safe because its default action is to ignore;
         // anything else could kill a target that is not listening.
         if (signal_number != default_signal) {
-            php_error_docref(NULL, E_WARNING,
-                "cannot tell whether process %d handles signal %d "
+            zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+                "meminfo_dump_process(): cannot tell whether process %d handles signal %d "
                 "(no /proc on this system) and its default action may terminate the target. "
                 "Pass \"force\" => true to send it anyway",
                 (int) pid, signal_number);
-            RETURN_FALSE;
+            return;
         }
     }
 
@@ -2548,8 +2569,9 @@ PHP_FUNCTION(meminfo_dump_process)
     }
 
     if (!locations[0].usable) {
-        php_error_docref(NULL, E_WARNING, "dump path is too long");
-        RETURN_FALSE;
+        zend_throw_exception_ex(spl_ce_InvalidArgumentException, 0,
+            "meminfo_dump_process(): dump path is too long");
+        return;
     }
 
     /* --- ask ----------------------------------------------------------- */
@@ -2562,10 +2584,10 @@ PHP_FUNCTION(meminfo_dump_process)
         value.sival_int = dump_id;
 
         if (sigqueue(pid, signal_number, value) != 0) {
-            php_error_docref(NULL, E_WARNING,
-                "cannot signal process %d: %s",
+            zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+                "meminfo_dump_process(): cannot signal process %d: %s",
                 (int) pid, strerror(errno));
-            RETURN_FALSE;
+            return;
         }
     }
 #else
@@ -2573,10 +2595,10 @@ PHP_FUNCTION(meminfo_dump_process)
     // dump after its pid and the time instead. Nothing here can distinguish
     // two concurrent requests, so the first matching file wins.
     if (kill(pid, signal_number) != 0) {
-        php_error_docref(NULL, E_WARNING,
-            "cannot signal process %d: %s",
+        zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+            "meminfo_dump_process(): cannot signal process %d: %s",
             (int) pid, strerror(errno));
-        RETURN_FALSE;
+        return;
     }
 #endif
 
@@ -2596,11 +2618,11 @@ PHP_FUNCTION(meminfo_dump_process)
                 && S_ISREG(info.st_mode)) {
 
                 if (!meminfo_dump_file_is_trustworthy(locations[i].final_path, pid)) {
-                    php_error_docref(NULL, E_WARNING,
-                        "%s is not a regular file owned by process %d; "
+                    zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+                        "meminfo_dump_process(): %s is not a regular file owned by process %d; "
                         "refusing to use it",
                         locations[i].final_path, (int) pid);
-                    RETURN_FALSE;
+                    return;
                 }
 
                 RETURN_STRING(locations[i].final_path);
@@ -2624,23 +2646,23 @@ PHP_FUNCTION(meminfo_dump_process)
 
         if (temp_seen) {
             if (meminfo_now_usec() - last_growth > (uint64_t) timeout_seconds * 1000000ULL) {
-                php_error_docref(NULL, E_WARNING,
-                    "the dump of process %d stopped growing for %ld "
+                zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+                    "meminfo_dump_process(): the dump of process %d stopped growing for %ld "
                     "seconds; giving up", (int) pid, (long) timeout_seconds);
-                RETURN_FALSE;
+                return;
             }
         } else if (meminfo_now_usec() - began > (uint64_t) timeout_seconds * 1000000ULL) {
-            php_error_docref(NULL, E_WARNING,
-                "process %d did not start a dump within %ld seconds",
+            zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+                "meminfo_dump_process(): process %d did not start a dump within %ld seconds",
                 (int) pid, (long) timeout_seconds);
-            RETURN_FALSE;
+            return;
         }
 
         /* --- has the target gone away? --- */
 
         if (kill(pid, 0) != 0 && errno == ESRCH) {
-            php_error_docref(NULL, E_WARNING,
-                "process %d exited during the dump", (int) pid);
+            zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+                "meminfo_dump_process(): process %d exited during the dump", (int) pid);
             goto failed_remove_partial;
         }
 
@@ -2650,8 +2672,8 @@ PHP_FUNCTION(meminfo_dump_process)
             if (meminfo_process_start_time(pid, &current_start_time)
                 && current_start_time != start_time) {
 
-                php_error_docref(NULL, E_WARNING,
-                    "process %d exited during the dump and its pid "
+                zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+                    "meminfo_dump_process(): process %d exited during the dump and its pid "
                     "was reused", (int) pid);
                 goto failed_remove_partial;
             }
@@ -2662,10 +2684,10 @@ PHP_FUNCTION(meminfo_dump_process)
             // gone and nothing was written, the request finished before
             // reaching a safe point.
             if (meminfo_signal_is_caught(pid, signal_number) == 0) {
-                php_error_docref(NULL, E_WARNING,
-                    "the request in process %d ended before the dump "
+                zend_throw_exception_ex(spl_ce_RuntimeException, 0,
+                    "meminfo_dump_process(): the request in process %d ended before the dump "
                     "started", (int) pid);
-                RETURN_FALSE;
+                return;
             }
 
             // Standard signals coalesce, so one sent while the target was busy
@@ -2689,13 +2711,13 @@ PHP_FUNCTION(meminfo_dump_process)
     }
 
 failed_remove_partial:
+    // Reached with an exception already pending; the partial dump the target
+    // left behind is of no use to anyone and is removed before unwinding.
     for (i = 0; i < location_count; i++) {
         if (locations[i].usable) {
             unlink(locations[i].temp_path);
         }
     }
-
-    RETURN_FALSE;
 }
 
 #endif /* !PHP_WIN32 */

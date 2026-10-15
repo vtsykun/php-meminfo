@@ -170,11 +170,20 @@ function dump_meminfo_main($argv)
         return EXIT_FAILED;
     }
 
-    // Warnings from the extension explain exactly which step failed; they
-    // belong on stderr so that stdout stays parseable as just the path.
-    $path = meminfo_dump_process($parsed['pid'], $parsed['options']);
+    // The exception message explains exactly which step failed and already
+    // names the function it came from. It belongs on stderr so that stdout
+    // stays parseable as nothing but the path.
+    try {
+        $path = meminfo_dump_process($parsed['pid'], $parsed['options']);
+    } catch (InvalidArgumentException $exception) {
+        // The call itself was wrong, which for a command is a usage error —
+        // the same exit code the argument parsing above returns.
+        dump_meminfo_write(STDERR, $exception->getMessage());
 
-    if ($path === false) {
+        return EXIT_USAGE;
+    } catch (Exception $exception) {
+        dump_meminfo_write(STDERR, $exception->getMessage());
+
         return EXIT_FAILED;
     }
 

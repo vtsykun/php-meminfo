@@ -50,11 +50,13 @@ CODE;
     if ($pid > 0) {
         // --- the trigger itself -------------------------------------------
 
+        // No try/catch: on these paths a failure should fail the test loudly
+        // rather than be reported as a polite "no".
         $path = meminfo_dump_process($pid, array('dir' => $dumpDir, 'timeout' => 20));
 
-        echo "returned a path: ", $path === false ? 'no' : 'yes', "\n";
+        echo "returned a path: ", is_string($path) ? 'yes' : 'no', "\n";
 
-        if ($path !== false) {
+        if (is_string($path)) {
             printf("mode: %o\n", fileperms($path) & 0777);
 
             $items = meminfo_test_items($path);
@@ -101,12 +103,10 @@ CODE;
         $second = meminfo_dump_process($pid, array('dir' => $dumpDir, 'timeout' => 20));
 
         echo "two triggers got separate files: ",
-            ($first !== false && $second !== false && $first !== $second) ? 'yes' : 'no', "\n";
+            ($first !== $second) ? 'yes' : 'no', "\n";
 
         foreach (array($first, $second) as $extra) {
-            if ($extra !== false) {
-                @unlink($extra);
-            }
+            @unlink($extra);
         }
 
         echo "target still running: ",

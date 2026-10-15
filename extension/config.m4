@@ -11,4 +11,8 @@ if test "$PHP_MEMINFO" = "yes"; then
   AC_CHECK_FUNCS(sigqueue)
 
   PHP_NEW_EXTENSION(meminfo, meminfo.c, $ext_shared)
+
+  dnl Errors are reported by throwing SPL exceptions, so SPL has to be
+  dnl initialised before this extension is.
+  PHP_ADD_EXTENSION_DEP(meminfo, spl)
 fi

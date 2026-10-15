@@ -185,6 +185,26 @@ Check that dumping does not change the state or the memory of the dumped process
 
     ini_set('memory_limit', $previousLimit);
     echo "dump completed with 8MB of headroom: yes\n";
+
+    // --- 5. A dump that cannot be written must say so ----------------------
+
+    // Silently producing a truncated dump is worse than failing: the caller
+    // goes on to analyse invalid JSON as if it were complete.
+    $readOnly = fopen(__FILE__, 'r');
+    $thrown = null;
+
+    try {
+        // `@` silences the stream layer's own "write failed" notice; it does
+        // not silence the exception, which is the point of this check.
+        @meminfo_dump($readOnly);
+    } catch (Exception $exception) {
+        $thrown = $exception;
+    }
+
+    fclose($readOnly);
+
+    echo "unwritable stream reported: ", $thrown === null ? 'no' : 'yes', "\n";
+    echo "reported as: ", $thrown === null ? '(nothing)' : get_class($thrown), "\n";
 ?>
 --EXPECT--
 children found: yes
@@ -195,3 +215,5 @@ typed property still uninitialised: yes
 retained after dumping 200 frames under 64KB: yes (0 bytes)
 retained after dumping 100000 objects under 64KB: yes (0 bytes)
 dump completed with 8MB of headroom: yes
+unwritable stream reported: yes
+reported as: RuntimeException
