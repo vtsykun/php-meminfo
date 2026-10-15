@@ -1,13 +1,21 @@
 # Unreleased
 
 ## Bug fixes
+ - `meminfo_dump()` no longer crashes on deeply nested structures. The traversal used to recurse once per level and overflowed the C stack above roughly 28 000 levels — and around 7 000 inside a `Fiber`, which has a smaller stack. A 200 000-level object chain or nested array now dumps normally
+ - Dumping no longer leaves memory behind in the process being dumped. Reading an object's properties through `get_properties()` attached a property table to every object it touched, and walking the frames attached a symbol table to every frame: about 37 MB retained per 100 000 objects, and 1.3 KB per frame. Both are now read without building anything, so a dump retains nothing
+ - A dump no longer fails near `memory_limit`. Its bookkeeping used to be allocated by the Zend allocator and added some 75 MB of transient peak per 100 000 objects, which hit the limit of the very process being investigated for memory use. All of it is now allocated outside the limit, and the process's resident size no longer stays at the dump's peak afterwards
+ - Dumping is 30 to 35 times faster — 1M objects went from about 35 s to about 1 s — and issues three orders of magnitude fewer `write(2)` calls. The JSON escaper made 34 passes over every string it wrote; it is now a single pass, and output is buffered instead of written per field
+ - Variables are attributed to the user function they belong to. A local observed while an internal function such as `array_map()` was on the stack used to be labelled `array_map()`
+ - Dumping while a `Fiber` is suspended no longer crashes on PHP 8.1. The writer used to repoint `EG(current_execute_data)` at the fiber's own stack and leave it there
  - Fixes loading of the extension on PHP 7.4 (`GC_TRY_ADDREF: symbol not found`) and the wrong argument passed to `get_properties` on PHP 7.4
  - Object properties are no longer read through `__debugInfo` on PHP 7.0 – 7.3, matching the behaviour on PHP 7.4+
  - The dump stays valid JSON for objects whose `get_properties` handler returns NULL, such as ext-protobuf messages, `MapField` and `RepeatedField` (broke dumps of applications using grpc/protobuf). Such objects now have an empty `children`; the dump format is otherwise unchanged and the analyzer needs no update
  - Item identifier buffers are large enough for any 64-bit pointer, and a type without a name is dumped as `unknown` instead of crashing
 
 ## Improvement
+ - Dumps the memory of an **already running process**, without changing the application. `dump-meminfo <pid>` (or `meminfo_dump_process()`) signals the target, which writes the dump at the next safe point between opcodes and never into its own output; the command prints the path of the finished file. Configured with `meminfo.dump_signal` (default `SIGURG`, whose default action is to ignore — unlike `SIGUSR2`, which php-fpm leaves lethal in its workers) and `meminfo.dump_dir`. The target must be PHP 7.1 or later, non-ZTS, on POSIX; the trigger works from any build, PHP 7.0 included. See "Dumping a running process" in the README
  - Adds a `Dockerfile` and `make docker-build` / `docker-test` / `docker-matrix` targets to build and test the extension for a chosen `PHP_VERSION`
+ - Adds `make install-cli` to install the `dump-meminfo` command, and `tools/repro/memory/` with the probes used to measure what a dump costs the process it is taken from
 
 # 1.1.1 PHP Meminfo v1.1.1 (2021-02-17)
 Fixes segfault on symbol table not properly rebuilt.

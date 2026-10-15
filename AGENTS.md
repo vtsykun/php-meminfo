@@ -26,8 +26,9 @@ analyzer that inspects those dumps to help track down memory leaks.
 ```
 extension/                    C extension for the Zend Engine
   meminfo.c                   all extension implementation
-  php_meminfo.h               public prototypes, version/copyright macros
+  php_meminfo.h               public prototypes, module globals, version/copyright macros
   config.m4                   phpize/autotools build definition
+  dump-meminfo                CLI wrapper over meminfo_dump_process() (installed by make install-cli)
   tests/                      .phpt tests
     fixtures/                 shared PHP fixtures for tests
 analyzer/                     standalone PHP CLI application (PSR-4, BitOne\ namespace)
@@ -42,6 +43,7 @@ doc/                          usage guides and example scripts
 Dockerfile                    builds + enables the extension for a given PHP_VERSION (image meminfo:php-X.Y)
 .dockerignore                 keeps host build artifacts and vendor/ out of the Docker build context
 tools/repro/protobuf/         repro image (meminfo + ext-protobuf, optional ext-grpc) and repro.php dump check
+tools/repro/memory/           probes for what a dump costs the dumped process: memory, speed, deep structures, signal path, target-side file hardening
 CMakeLists.txt                IDE-only CLion project model over extension/ (Zend headers from .ide/)
 CMakePresets.json             one CMake profile per PHP version (php-7.0 … php-8.1)
 .ide/                         PHP headers extracted by `make ide` (git-ignored)
@@ -56,9 +58,10 @@ reverse. Commands stay thin; analysis logic belongs in `Analyzer/*` so it can be
 
 | File | Purpose |
 |---|---|
-| `extension/meminfo.c` | Implements `meminfo_dump()` and the whole memory traversal |
-| `extension/php_meminfo.h` | Exported prototypes, `MEMINFO_VERSION`, copyright macros |
+| `extension/meminfo.c` | Implements `meminfo_dump()` and `meminfo_dump_process()`, the memory traversal, the buffered writer, and the signal/interrupt path that dumps on request |
+| `extension/php_meminfo.h` | Exported prototypes, the writer type, module globals, `MEMINFO_VERSION`, copyright macros |
 | `extension/config.m4` | Build definition — new `.c` files must be registered here |
+| `extension/dump-meminfo` | `dump-meminfo <pid>` command; prints the path of the dump the target wrote |
 | `analyzer/bin/analyzer` | CLI entry point for the analyzer |
 | `analyzer/src/BitOne/PhpMemInfo/Console/Application.php` | Registers the console commands |
 | `analyzer/src/BitOne/PhpMemInfo/Loader.php` | Single reader of dump files |
@@ -72,6 +75,7 @@ The root `Makefile` wraps both halves of the project. Run `make help` for the fu
 ```bash
 make build          # build the extension (phpize + configure + make, as needed)
 make install        # install analyzer dependencies via Composer
+make install-cli    # install the dump-meminfo command into $(PREFIX)/bin (default /usr/local)
 make test           # both suites: .phpt for the extension, phpspec for the analyzer
 make test-ext       # extension tests only
 make test-one TEST=tests/dump-array.phpt   # a single .phpt test
@@ -87,6 +91,7 @@ make docker-shell PHP_VERSION=7.4   # bash shell in the image
 make docker-clean   # remove all meminfo:php-* images
 make repro          # dump ext-protobuf objects (WITH_GRPC=1 adds ext-grpc) and check the JSON
 make repro-test     # .phpt suite with ext-protobuf loaded (runs the protobuf-only test)
+tools/repro/memory/compare.sh 8.1   # measure a dump's cost against a baseline revision (see its README)
 make ide PHP_VERSION=7.4   # extract PHP 7.4 headers into .ide/php-7.4 for CLion
 make ide-clean      # remove extracted headers
 ```

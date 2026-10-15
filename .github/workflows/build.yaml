@@ -4,18 +4,20 @@ on: push
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
+      fail-fast: false
       matrix:
         php-versions: ['7.0', '7.1', '7.2', '7.3', '7.4', '8.0', '8.1']
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php-versions }}
+          extensions: posix, json
           coverage: none
 
       - name: Build the extension
@@ -25,22 +27,24 @@ jobs:
           ./configure
           make
 
+      # run-tests.php from PHP 7 does not pick up the freshly built module on its
+      # own, so the extension is passed explicitly. make test works on PHP 8.
       - name: Test the extension (PHP 7)
-        if: matrix.php-versions != '8.0' and matrix.php-versions == '8.1'
+        if: matrix.php-versions != '8.0' && matrix.php-versions != '8.1'
         run: |
           cd extension/
           REPORT_EXIT_STATUS=1 NO_INTERACTION=1 TEST_PHP_EXECUTABLE=$(which php) $(which php) run-tests.php -d extension=$PWD/modules/meminfo.so
 
       - name: Test the extension (PHP 8)
-        if: matrix.php-versions == '8.0' or matrix.php-versions == '8.1'
+        if: matrix.php-versions == '8.0' || matrix.php-versions == '8.1'
         run: |
           cd extension/
           REPORT_EXIT_STATUS=1 NO_INTERACTION=1 make test
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: ext-tests-output
+          name: ext-tests-output-php-${{ matrix.php-versions }}
           path: 'extension/tests/*.out'
 
       - name: Test the analyzers

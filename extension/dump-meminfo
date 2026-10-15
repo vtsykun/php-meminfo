@@ -1,0 +1,188 @@
+#!/usr/bin/env php
+<?php
+/**
+ * Dump the memory of a running PHP process.
+ *
+ * PHP does not let an extension add a `php <subcommand>`, so this is a thin
+ * wrapper around meminfo_dump_process(): it parses argv and prints the path of
+ * the dump the target wrote.
+ *
+ * Written for PHP 7.0 syntax — it has to run on the oldest version the
+ * extension supports.
+ *
+ * @author    Benoit Jacquemont <benoit.jacquemont@gmail.com>
+ * @copyright 2010-2021 Benoit Jacquemont
+ * @license   http://opensource.org/licenses/MIT MIT
+ */
+
+define('EXIT_OK', 0);
+define('EXIT_FAILED', 1);
+define('EXIT_USAGE', 2);
+
+/**
+ * @param resource $stream
+ * @param string   $message
+ */
+function dump_meminfo_write($stream, $message)
+{
+    fwrite($stream, $message . "\n");
+}
+
+/**
+ * @return string
+ */
+function dump_meminfo_usage()
+{
+    return implode("\n", array(
+        'Usage: dump-meminfo <pid> [options]',
+        '',
+        'Dumps the memory of a running PHP process to a JSON file and prints its path.',
+        'The target must have the meminfo extension loaded and be inside a request.',
+        '',
+        'Options:',
+        '  --dir=DIR        Directory the dump is written to (default: the target\'s',
+        '                   meminfo.dump_dir, or the system temporary directory)',
+        '  --signal=SIG     Signal to send, by name or number (default: the',
+        '                   meminfo.dump_signal of this process, normally SIGURG)',
+        '  --timeout=SEC    Seconds to wait for the dump to start (default: 30).',
+        '                   Once it has started, the wait continues while it grows.',
+        '  --force          Send the signal even when the target does not appear to',
+        '                   handle it. May terminate a target that is not listening.',
+        '  -h, --help       Show this help',
+        '',
+        'Example:',
+        '  dump-meminfo 12345',
+        '  dump-meminfo 12345 --dir=/var/tmp --timeout=60',
+        '',
+        'Analyze the result with:',
+        '  analyzer summary <dump-file>',
+    ));
+}
+
+/**
+ * @param array $argv
+ *
+ * @return array|int parsed arguments, or an exit code when argv is unusable
+ */
+function dump_meminfo_parse($argv)
+{
+    $pid = null;
+    $options = array();
+
+    for ($i = 1, $count = count($argv); $i < $count; $i++) {
+        $argument = $argv[$i];
+
+        if ($argument === '-h' || $argument === '--help') {
+            dump_meminfo_write(STDOUT, dump_meminfo_usage());
+
+            return EXIT_OK;
+        }
+
+        if ($argument === '--force') {
+            $options['force'] = true;
+            continue;
+        }
+
+        if (strpos($argument, '--dir=') === 0) {
+            $options['dir'] = substr($argument, strlen('--dir='));
+            continue;
+        }
+
+        if (strpos($argument, '--signal=') === 0) {
+            $options['signal'] = substr($argument, strlen('--signal='));
+            continue;
+        }
+
+        if (strpos($argument, '--timeout=') === 0) {
+            $timeout = substr($argument, strlen('--timeout='));
+
+            if (!ctype_digit($timeout) || (int) $timeout < 1) {
+                dump_meminfo_write(STDERR, 'dump-meminfo: --timeout must be a positive integer');
+
+                return EXIT_USAGE;
+            }
+
+            $options['timeout'] = (int) $timeout;
+            continue;
+        }
+
+        if ($argument === '' || $argument[0] === '-') {
+            dump_meminfo_write(STDERR, 'dump-meminfo: unknown option ' . $argument);
+            dump_meminfo_write(STDERR, dump_meminfo_usage());
+
+            return EXIT_USAGE;
+        }
+
+        if ($pid !== null) {
+            dump_meminfo_write(STDERR, 'dump-meminfo: only one pid may be given');
+
+            return EXIT_USAGE;
+        }
+
+        if (!ctype_digit($argument) || (int) $argument < 1) {
+            dump_meminfo_write(STDERR, 'dump-meminfo: pid must be a positive integer');
+
+            return EXIT_USAGE;
+        }
+
+        $pid = (int) $argument;
+    }
+
+    if ($pid === null) {
+        dump_meminfo_write(STDERR, dump_meminfo_usage());
+
+        return EXIT_USAGE;
+    }
+
+    return array('pid' => $pid, 'options' => $options);
+}
+
+/**
+ * @param array $argv
+ *
+ * @return int exit code
+ */
+function dump_meminfo_main($argv)
+{
+    $parsed = dump_meminfo_parse($argv);
+
+    if (!is_array($parsed)) {
+        return $parsed;
+    }
+
+    if (!extension_loaded('meminfo')) {
+        dump_meminfo_write(STDERR, implode("\n", array(
+            'dump-meminfo: the meminfo extension is not loaded in this PHP.',
+            '',
+            'Enable it by adding',
+            '    extension=meminfo.so',
+            'to your php.ini, or run this command with',
+            '    php -d extension=meminfo.so ' . $argv[0] . ' ...',
+        )));
+
+        return EXIT_FAILED;
+    }
+
+    if (!function_exists('meminfo_dump_process')) {
+        dump_meminfo_write(STDERR,
+            'dump-meminfo: this meminfo build cannot signal other processes (Windows is not supported).');
+
+        return EXIT_FAILED;
+    }
+
+    // Warnings from the extension explain exactly which step failed; they
+    // belong on stderr so that stdout stays parseable as just the path.
+    $path = meminfo_dump_process($parsed['pid'], $parsed['options']);
+
+    if ($path === false) {
+        return EXIT_FAILED;
+    }
+
+    dump_meminfo_write(STDOUT, $path);
+
+    return EXIT_OK;
+}
+
+ini_set('display_errors', 'stderr');
+
+exit(dump_meminfo_main($argv));

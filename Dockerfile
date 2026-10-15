@@ -34,6 +34,10 @@ COPY Makefile /src/Makefile
 COPY doc/ /src/doc/
 COPY analyzer/ /src/analyzer/
 
+# The CLI wrapper for dumping other processes; handy for poking at a worker
+# from inside the image.
+RUN install -m 0755 /src/extension/dump-meminfo /usr/local/bin/dump-meminfo
+
 RUN set -eux; \
     cd /src/analyzer; \
     composer install --no-interaction --no-progress

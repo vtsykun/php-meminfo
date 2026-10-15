@@ -69,6 +69,17 @@ install-ext: build ## Install the extension into the PHP extension directory (ma
 	$(MAKE) -C $(EXT_DIR) install
 	@echo "Add 'extension=meminfo.so' to your php.ini to enable it."
 
+# The dump-meminfo command only needs a PHP with the extension loaded, so it is
+# installed independently of the build.
+PREFIX  ?= /usr/local
+DESTDIR ?=
+
+.PHONY: install-cli
+install-cli: ## Install the dump-meminfo command into $(PREFIX)/bin (may need sudo)
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 0755 $(EXT_DIR)/dump-meminfo $(DESTDIR)$(PREFIX)/bin/dump-meminfo
+	@echo "Installed $(DESTDIR)$(PREFIX)/bin/dump-meminfo"
+
 .PHONY: install
 install: ## Install analyzer dependencies via Composer
 	cd $(ANA_DIR)
