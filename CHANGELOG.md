@@ -3,6 +3,8 @@
 ## Bug fixes
  - Fixes loading of the extension on PHP 7.4 (`GC_TRY_ADDREF: symbol not found`) and the wrong argument passed to `get_properties` on PHP 7.4
  - Object properties are no longer read through `__debugInfo` on PHP 7.0 – 7.3, matching the behaviour on PHP 7.4+
+ - The dump stays valid JSON for objects whose `get_properties` handler returns NULL, such as ext-protobuf messages, `MapField` and `RepeatedField` (broke dumps of applications using grpc/protobuf). Such objects now have an empty `children`; the dump format is otherwise unchanged and the analyzer needs no update
+ - Item identifier buffers are large enough for any 64-bit pointer, and a type without a name is dumped as `unknown` instead of crashing
 
 ## Improvement
  - Adds a `Dockerfile` and `make docker-build` / `docker-test` / `docker-matrix` targets to build and test the extension for a chosen `PHP_VERSION`

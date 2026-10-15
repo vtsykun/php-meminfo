@@ -41,6 +41,7 @@ doc/                          usage guides and example scripts
 .github/workflows/            CI: build extension + run both test suites on PHP 7.0–8.1
 Dockerfile                    builds + enables the extension for a given PHP_VERSION (image meminfo:php-X.Y)
 .dockerignore                 keeps host build artifacts and vendor/ out of the Docker build context
+tools/repro/protobuf/         repro image (meminfo + ext-protobuf, optional ext-grpc) and repro.php dump check
 CMakeLists.txt                IDE-only CLion project model over extension/ (Zend headers from .ide/)
 CMakePresets.json             one CMake profile per PHP version (php-7.0 … php-8.1)
 .ide/                         PHP headers extracted by `make ide` (git-ignored)
@@ -84,6 +85,8 @@ make docker-test  PHP_VERSION=7.4   # both test suites inside that image
 make docker-matrix  # docker-test for every version in PHP_VERSIONS (7.0 – 8.1)
 make docker-shell PHP_VERSION=7.4   # bash shell in the image
 make docker-clean   # remove all meminfo:php-* images
+make repro          # dump ext-protobuf objects (WITH_GRPC=1 adds ext-grpc) and check the JSON
+make repro-test     # .phpt suite with ext-protobuf loaded (runs the protobuf-only test)
 make ide PHP_VERSION=7.4   # extract PHP 7.4 headers into .ide/php-7.4 for CLion
 make ide-clean      # remove extracted headers
 ```

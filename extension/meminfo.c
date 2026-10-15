@@ -110,7 +110,7 @@ static void meminfo_visit_exec_frame(php_stream *stream, HashTable *visited_item
     zend_array *p_symbol_table;
 
     char frame_label[500];
-    char ptr_identifier[17];
+    char ptr_identifier[MEMINFO_ID_LEN];
     exec_frame = current_execute_data;
 
     while (exec_frame) {
@@ -258,7 +258,7 @@ void meminfo_hash_dump(php_stream *stream, HashTable *ht, zend_bool is_object, H
 
     zend_hash_internal_pointer_reset_ex(ht, &pos);
     while ((zval = zend_hash_get_current_data_ex(ht, &pos)) != NULL) {
-        char zval_id[17];
+        char zval_id[MEMINFO_ID_LEN];
 
         if (Z_TYPE_P(zval) == IS_INDIRECT) {
             zval = Z_INDIRECT_P(zval);
@@ -324,7 +324,7 @@ void meminfo_hash_dump(php_stream *stream, HashTable *ht, zend_bool is_object, H
 
 void meminfo_zval_dump(php_stream * stream, char * frame_label, zend_string * symbol_name, zval * zv, HashTable *visited_items, int *first_element)
 {
-    char zval_identifier[17];
+    char zval_identifier[MEMINFO_ID_LEN];
 
     if (Z_TYPE_P(zv) == IS_INDIRECT) {
         zv = Z_INDIRECT_P(zv);
@@ -350,7 +350,10 @@ void meminfo_zval_dump(php_stream * stream, char * frame_label, zend_string * sy
         *first_element = 0;
     }
 
-    zend_string *zv_type = meminfo_escape_for_json(Z_ISUNDEF_P(zv) ? "null" : zend_get_type_by_const(Z_TYPE_P(zv)));
+    const char *type_name = Z_ISUNDEF_P(zv) ? "null" : zend_get_type_by_const(Z_TYPE_P(zv));
+
+    // zend_get_type_by_const() has no name for engine-internal types
+    zend_string *zv_type = meminfo_escape_for_json(type_name ? type_name : "unknown");
 
     php_stream_printf(stream, "    \"%s\" : {\n", zval_identifier);
     php_stream_printf(stream, "        \"type\" : \"%s\",\n", ZSTR_VAL(zv_type));
@@ -421,6 +424,10 @@ void meminfo_zval_dump(php_stream * stream, char * frame_label, zend_string * sy
 #if PHP_VERSION_ID >= 70400
             zend_release_properties(properties);
 #endif
+        } else {
+            // Some internal classes (e.g. ext-protobuf messages) return NULL from get_properties:
+            // an empty children list closes the item after the trailing comma above
+            php_stream_printf(stream, "        \"children\" : {\n        }\n");
         }
 #if PHP_VERSION_ID >= 80100
         if (strcmp(ZSTR_VAL(class_name), "Fiber") == 0) {

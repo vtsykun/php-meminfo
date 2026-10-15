@@ -10,6 +10,11 @@ extern zend_module_entry meminfo_module_entry;
 #define MEMINFO_COPYRIGHT  "Copyright (c) 2010-2021 by Benoit Jacquemont & contributors"
 #define MEMINFO_COPYRIGHT_SHORT "Copyright (c) 2010-2021"
 
+// Buffer size for an item identifier printed with "%p" ("0x" + 16 hex digits + NUL, with margin).
+// Identifiers are written with sprintf on purpose: php.h maps snprintf to ap_php_snprintf,
+// whose "%p" yields non-unique identifiers on PHP 7.0.
+#define MEMINFO_ID_LEN 32
+
 PHP_FUNCTION(meminfo_dump);
 
 zend_ulong   meminfo_get_element_size(zval* z);
