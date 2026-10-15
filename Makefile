@@ -184,6 +184,31 @@ docker-clean: ## Remove all meminfo:php-* images
 		$(DOCKER) image rm $$images; \
 	fi
 
+# $(DOCKER_TAG) plus ext-protobuf (and ext-grpc with WITH_GRPC=1), see tools/repro/protobuf/.
+# The pinned PROTOBUF_VERSION builds on PHP 8.1; override it for other versions.
+WITH_GRPC        ?= 0
+PROTOBUF_VERSION ?= 4.29.3
+REPRO_TAG        := $(DOCKER_IMAGE)-repro:php-$(PHP_VERSION)$(if $(filter 1,$(WITH_GRPC)),-grpc)
+
+.PHONY: repro-build
+repro-build: docker-build ## Build the protobuf repro image (usage: make repro-build PHP_VERSION=8.1 WITH_GRPC=1)
+	$(DOCKER) build $(DOCKER_PLATFORM_FLAG) \
+		--build-arg PHP_VERSION=$(PHP_VERSION) \
+		--build-arg PROTOBUF_VERSION=$(PROTOBUF_VERSION) \
+		--build-arg WITH_GRPC=$(WITH_GRPC) \
+		-f tools/repro/protobuf/Dockerfile -t $(REPRO_TAG) .
+	@echo "Built image $(REPRO_TAG)"
+
+.PHONY: repro
+repro: repro-build ## Dump protobuf/grpc objects and check the dump is valid JSON
+	$(DOCKER) run --rm $(DOCKER_PLATFORM_FLAG) $(REPRO_TAG)
+
+# run-tests.php starts PHP with -n, so protobuf has to be loaded explicitly by its full path.
+.PHONY: repro-test
+repro-test: repro-build ## Run the .phpt suite with ext-protobuf loaded
+	$(DOCKER) run --rm $(DOCKER_PLATFORM_FLAG) $(REPRO_TAG) sh -c \
+		'make test-one TEST="-d extension=$$(php-config --extension-dir)/protobuf.so tests/"'
+
 ##@ IDE
 
 # PHP headers copied out of $(DOCKER_TAG) for code insight in CLion (see CMakeLists.txt).
