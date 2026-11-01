@@ -57,7 +57,7 @@ Opening a dump
 
 Open <https://vantafinance.github.io/php-meminfo/> and drop the dump on the page (or use
 **Open dump…**). The page is static: the file is read and analyzed by your browser, in a Web Worker,
-and nothing is uploaded.
+and nothing is uploaded. To explore the interface without your own dump, choose **Try demo**. It opens synthetic sample snapshots; **Demo data** stays visible until you close or replace them.
 
 To run the UI yourself (Node 24+):
 
@@ -103,6 +103,7 @@ Open `/tmp/leak-after.json`.
 went away, everything it alone keeps alive included. It is computed from the dominator tree of the
 dump — item A dominates item B when every path from a root to B goes through A.
 
+- **Largest retainers** visualizes the top ten individual retainers. Each bar is relative to the accounted dump size; bars may overlap and must not be added. Select an item or **Show graph** to investigate its references. The table below contains at most 500 suspects.
 - **Biggest retainers** lists the items that dominate the most: here `Dispatcher dispatcher` in
   `<GLOBAL>`, holding over 99% of the dump, with about 19,000 items in **Items kept**. Long chains
   are folded into their head, so a linked list shows up once, not once per node.
@@ -125,9 +126,8 @@ baseline's totals per type and class are kept, so this does not need memory for 
 The table lists, for each type or class, the count **Before**, **Now**, **Δ count** and
 **Δ self size**; **Only types that changed** hides the rest. Here `AuditListener` and `Order` grew by
 900 each — exactly the 900 orders handled between the two dumps — and arrays, strings and ints grew
-by a multiple of that (the order lines). A count that grows in step with the work done is the
-signature of a leak. Classes marked **new** appeared since the baseline, **gone** ones disappeared.
-Selecting a row searches for its instances.
+by a multiple of that (the order lines). A count that grows in step with the work done is a useful lead, but it can also reflect legitimate retained data. Classes marked **new** appeared since the baseline, **gone** ones disappeared.
+Selecting a row searches for its instances. **Largest changes** plots the largest positive and negative changes in count or self size, not retained size. For three or more snapshots, the sample bars show only counts that grew at every step. Files are ordered by modification time, which may differ from capture order; capture at comparable quiet points in the same process. Object handles can be reused, so three-snapshot candidates remain hypotheses.
 
 ### 3. Summary and Top children
 

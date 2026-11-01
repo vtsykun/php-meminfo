@@ -99,7 +99,7 @@
   <header class="view-header">
     <div>
       <h2>Leak suspects</h2>
-      <p class="sub">What keeps the most memory alive, by what would be freed if it went away.</p>
+      <p class="sub">Start with a retainer, compare growth, then open its graph to see what keeps it reachable.</p>
     </div>
   </header>
 
@@ -132,6 +132,20 @@
       {/if}
     </p>
 
+    <div class="block">
+      <h3>Largest retainers</h3>
+      <p class="hint">Each bar shows retained memory as a share of the accounted dump. Retainers may overlap; their sizes cannot be added. Showing up to 10 of the first 500 suspects.</p>
+      <ol class="retainer-chart" aria-label="Largest retainers by retained memory">
+        {#each result.suspects.slice(0, 10) as row (row.index)}
+          <li>
+            <button type="button" class="chart-label" aria-pressed={app.selected === row.index} onclick={() => app.select(row.index)}><ItemLabel {row} /></button>
+            <span class="chart-track" aria-hidden="true"><span style:width="{total > 0 ? Math.min(100, row.retained / total * 100) : 0}%"></span></span>
+            <span class="num">{formatBytes(row.retained)} ({formatCount(row.retained)} B) · {formatPercent(row.retained, total)}</span>
+            <button type="button" class="button quiet" aria-label="Open reference graph for {row.className ?? row.type} {row.symbol ?? ''}" onclick={() => app.openGraph(row.index)}>Graph</button>
+          </li>
+        {/each}
+      </ol>
+    </div>
     <div class="block">
       <h3>Biggest retainers</h3>
       <VirtualTable
@@ -234,6 +248,14 @@
 </section>
 
 <style>
+  .retainer-chart { display: grid; gap: var(--space-2); list-style: none; padding: 0; margin: 0; }
+  .retainer-chart li { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(80px, 2fr) auto auto; gap: var(--space-3); align-items: center; }
+  .chart-label[aria-pressed="true"] { font-weight: 700; text-decoration: underline; }
+  .chart-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .chart-label { text-align: left; background: none; border: 0; color: var(--accent); cursor: pointer; overflow-wrap: anywhere; }
+  .chart-track { height: 12px; background: var(--surface-sunken); border-radius: 6px; overflow: hidden; }
+  .chart-track span { display: block; height: 100%; background: var(--bar-strong); }
+  @media (max-width: 700px) { .retainer-chart li { grid-template-columns: 1fr auto; } .chart-track { grid-column: 1 / -1; } }
   .view {
     display: flex;
     flex-direction: column;

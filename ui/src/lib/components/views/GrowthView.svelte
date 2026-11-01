@@ -21,6 +21,7 @@
   let rows = $state.raw<GrowthRow[] | null>(null)
   let failed = $state<string | null>(null)
   let changedOnly = $state(true)
+  let metric = $state<'sizeDelta' | 'countDelta'>('sizeDelta')
 
   $effect(() => {
     void app.generation
@@ -122,6 +123,16 @@
     ],
   )
 
+  const incompatible = $derived.by(() => {
+    const current = app.overview?.header
+    if (!current) return false
+    return app.baselines.some(({ header }) => header && (
+      (header.pid !== undefined && current.pid !== undefined && header.pid !== current.pid) ||
+      (header.size_model ?? 1) !== (current.size_model ?? 1) ||
+      (header.identity_model ?? 1) !== (current.identity_model ?? 1)
+    ))
+  })
+
   const shown = $derived(rows === null ? null : changedOnly ? rows.filter((row) => row.countDelta !== 0 || row.sizeDelta !== 0) : rows)
 
   function pick(event: Event): void {
@@ -145,7 +156,7 @@
     <div>
       <h2>Growth</h2>
       <p class="sub">
-        Compare with an earlier dump of the same process: what keeps growing between the two is what leaks.
+        Compare equivalent points in the same process. Growth is a clue to investigate, not proof of a leak.
       </p>
     </div>
     {#if app.baselines.length > 0}
@@ -166,6 +177,9 @@
     <input bind:this={input} class="visually-hidden" type="file" accept=".json,application/json" onchange={pick} aria-label="Baseline dump" />
   </header>
 
+  {#if incompatible}
+    <p class="notice warning">These dumps have different process IDs or memory models. Their measurements may not be comparable.</p>
+  {/if}
   {#if app.baselines.length > 0 && midWork.length > 0}
     <p class="notice">
       Taken in the middle of the work ({midWork.join(', ')}): these dumps hold the temporaries of the job running at the
@@ -186,7 +200,8 @@
         {#each app.histograms.rows.slice(0, 25) as row (row.key)}
           <li>
             <span class:grew={row.growing}>{row.key}</span>
-            <span class="num muted">{row.counts.map((count) => formatCount(count)).join(' → ')}</span>
+            <span class="sample-bars" aria-hidden="true">{#each row.counts as count}<span style:height="{Math.max(3, count / row.counts.reduce((max, value) => Math.max(max, value), 1) * 32)}px"></span>{/each}</span>
+              <span class="num muted">{row.counts.map((count) => formatCount(count)).join(' → ')}</span>
           </li>
         {/each}
       </ul>
@@ -263,7 +278,7 @@
         <h3>Leak candidates: {formatCount(leaks.candidates)} objects</h3>
         <p class="hint">
           Created after <strong>{app.baselines[0]?.name}</strong>, present in <strong>{app.baselines.at(-1)?.name}</strong> and
-          still alive now. Objects are matched by handle and class.
+          still alive now. Objects are matched by handle and class; handles can be reused, so these are candidates, not confirmed survivors.
         </p>
         {#if leaks.candidates > 0}
           <ul class="list">
@@ -271,7 +286,7 @@
               <li>
                 <button type="button" class="link" onclick={() => app.searchFor(row.key, true)}>{row.key}</button>
                 <span class="num">{formatCount(row.count)}</span>
-                <span class="num muted">{formatBytes(row.retained)}</span>
+                <span class="num muted" title="Sum of retained sizes may overlap">{formatBytes(row.retained)} (overlapping sum)</span>
               </li>
             {/each}
           </ul>
@@ -291,6 +306,7 @@
     {#if series && (series.classes.length > 0 || series.containers.length > 0)}
       <div class="block">
         <h3>Growing at every step ({series.names.length} dumps)</h3>
+        <p class="hint">Samples: {series.names.join(' → ')}. File modification times determine order and may not reflect capture order; bars are equally spaced samples, not a time scale. Only strictly increasing counts are shown; containers have at least 100 children and only the 2,000 largest are considered.</p>
         <ul class="list">
           {#each series.classes.slice(0, 15) as row (row.key)}
             <li>
@@ -301,6 +317,7 @@
           {#each series.containers.slice(0, 10) as container (container.signature)}
             <li>
               <span class="mono path">{container.signature}</span>
+              <span class="sample-bars" aria-hidden="true">{#each container.counts as count}<span style:height="{Math.max(3, count / container.counts.reduce((max, value) => Math.max(max, value), 1) * 32)}px"></span>{/each}</span>
               <span class="num muted">{container.counts.map((count) => formatCount(count)).join(' → ')} children</span>
             </li>
           {/each}
@@ -314,6 +331,21 @@
       </p>
     {/if}
 
+    <div class="block">
+      <h3>Largest changes</h3>
+      <label>Measure <select bind:value={metric}><option value="sizeDelta">Self size</option><option value="countDelta">Count</option></select></label>
+      <p class="hint">Changes from {app.baseline.name} to {app.overview?.fileName}. Self size excludes retained children. Showing up to 10 changes.</p>
+      <ol class="change-chart">
+        {#each [...shown].sort((a, b) => Math.abs(b[metric]) - Math.abs(a[metric])).slice(0, 10) as row (row.key + String(row.isClass))}
+          {@const maximum = shown.reduce((max, item) => Math.max(max, Math.abs(item[metric])), 1)}
+          <li>
+            {#if row.isGone}<span>{row.key} (gone)</span>{:else}<button type="button" class="link" onclick={() => app.searchFor(row.key, row.isClass)}>{row.key}</button>{/if}
+            <span class="change-track" aria-hidden="true"><span class:negative={row[metric] < 0} style:width="{Math.abs(row[metric]) / maximum * 50}%"></span></span>
+            <span class="num">{formatDelta(row[metric], metric === 'sizeDelta' ? formatBytes : formatCount)}</span>
+          </li>
+        {/each}
+      </ol>
+    </div>
     <label class="toggle">
       <input type="checkbox" bind:checked={changedOnly} />
       Only types that changed
@@ -343,6 +375,14 @@
 </section>
 
 <style>
+  .sample-bars { display: inline-flex; align-items: end; gap: 3px; height: 32px; flex-shrink: 0; }
+  .sample-bars span { display: block; width: 9px; background: var(--bar-strong); }
+  .change-chart { display: grid; gap: var(--space-2); padding: 0; list-style: none; }
+  .change-chart li { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(100px, 2fr) auto; gap: var(--space-3); align-items: center; }
+  .change-track { height: 12px; background: linear-gradient(to right, var(--surface-sunken) 49.8%, var(--border-strong) 50%, var(--surface-sunken) 50.2%); position: relative; }
+  .change-track span { display: block; position: absolute; left: 50%; height: 100%; background: var(--bar-strong); }
+  .change-track span.negative { left: auto; right: 50%; }
+  @media (max-width: 700px) { .change-chart li { grid-template-columns: 1fr auto; } .change-track { grid-column: 1 / -1; } }
   .view {
     display: flex;
     flex-direction: column;
@@ -457,7 +497,7 @@
     background: none;
     border: 0;
     padding: 0;
-    color: var(--accent-text);
+    color: var(--accent);
     cursor: pointer;
   }
 

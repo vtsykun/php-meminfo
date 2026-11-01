@@ -90,7 +90,7 @@
       <h2>Graph</h2>
       <p class="sub">
         {#if mode === 'paths'}
-          Every shortest path from a root to the item, merged: what keeps it reachable.
+          Shortest reference paths from roots to the selected item, merged. Arrows point from holder to held item. Other, longer paths may exist.
         {:else}
           The items around this one. Double-click any node to bring in its neighbours.
         {/if}
@@ -103,6 +103,9 @@
       <p>Pick an item to draw: click an address in Search or Top children, or use “Show graph” in an item's details.</p>
     </div>
   {:else}
+    {#if app.retainerFilters.length > 0}
+      <p class="notice">Ignored holders are active: root paths and retained sizes are recalculated without those references. Neighbourhood mode shows original references.</p>
+    {/if}
     <div class="toolbar" role="toolbar" aria-label="Graph options">
       <div class="segmented" role="group" aria-label="Mode">
         <button type="button" class:on={mode === 'paths'} aria-pressed={mode === 'paths'} onclick={() => (mode = 'paths')}>Paths from roots</button>
@@ -159,7 +162,7 @@
       <ul class="legend" aria-label="Legend">
         <li><span class="swatch target"></span>the item</li>
         <li><span class="swatch root"></span>root</li>
-        <li><span class="swatch bottleneck"></span>every path goes through it</li>
+        <li><span class="swatch bottleneck"></span>every root path goes through it</li>
         <li><span class="swatch shared"></span>shared by several roots</li>
       </ul>
     {/if}

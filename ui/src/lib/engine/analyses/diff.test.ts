@@ -75,6 +75,13 @@ describe('leakCandidates', () => {
     expect(candidates.map((index) => current.handle[index])).not.toContain(2)
   })
 
+  it('cannot distinguish a reused handle of the same class from a survivor', () => {
+    const original = reduceToBaseline(objectsDump([]), 'first')
+    const later = reduceToBaseline(objectsDump([[7, 'Request']]), 'second')
+    const replacement = objectsDump([[7, 'Request']])
+    expect(leakCandidates(original, later, replacement)).toHaveLength(1)
+  })
+
   it('refuses baselines without object identities', () => {
     const { objects: _, ...old } = first
     expect(() => leakCandidates(old, second, current)).toThrow(/object identities/)

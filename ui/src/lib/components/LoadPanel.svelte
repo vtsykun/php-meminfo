@@ -1,4 +1,6 @@
 <script lang="ts">
+  import before from '../demo/before.json?raw'
+  import after from '../demo/after.json?raw'
   import { formatBytes } from '../format'
   import { app } from '../state/app.svelte'
 
@@ -14,6 +16,14 @@
     // Drop the input's reference at once: the File must not outlive the hand-off.
     target.value = ''
     if (files.length > 0) app.openSeries(files)
+  }
+
+  function openDemo(): void {
+    app.openSeries([
+      new File([before], 'demo-before.json', { type: 'application/json', lastModified: 1 }),
+      new File([after], 'demo-after.json', { type: 'application/json', lastModified: 2 }),
+    ])
+    app.isDemo = true
   }
 
   function drop(event: DragEvent): void {
@@ -67,6 +77,7 @@
       <p class="drop-hint">or</p>
       <button type="button" class="button primary" onclick={() => input?.click()}>Open dump…</button>
       <input bind:this={input} class="visually-hidden" type="file" multiple accept=".json,application/json" onchange={pick} />
+      <button type="button" class="button quiet" onclick={openDemo}>Try demo</button>
       <p class="privacy">The dump is read and analyzed in this browser. Nothing is uploaded.</p>
     </div>
   </section>

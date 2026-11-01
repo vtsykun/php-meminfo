@@ -4,6 +4,10 @@ Opens a meminfo dump in the browser and points at likely memory leaks. No backen
 and analyzed client-side, and the built app's Content Security Policy forbids any request off the
 page. User-facing documentation is in the repository's README ("Analyzing a dump in the browser").
 
+## Try the interface
+
+Choose **Try demo** on the start page to load synthetic before/after snapshots. The demo uses the same worker and analyses as uploaded dumps and is marked **Demo data**. Close it or open your own dump to leave the demo. See [the leak investigation guide](../doc/hunting_down_memory_leaks.md) for reading the retained-memory and growth diagrams, and their limitations.
+
 ## Layout
 
 | Path | What lives there |

@@ -62,7 +62,7 @@
   {@const overview = app.overview}
   <div class="shell" class:with-inspector={app.selected !== null}>
     <header class="topbar">
-      <div class="brand">PHP Meminfo</div>
+      <div class="brand">PHP Meminfo {#if app.isDemo}<span class="badge">Demo data</span>{/if}</div>
       <div class="file">
         <span class="name" title={overview.fileName}>{overview.fileName}</span>
         <span class="facts">

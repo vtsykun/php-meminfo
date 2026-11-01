@@ -97,6 +97,7 @@ function writeHashFilters(filters: RetainerFilter[]): void {
 
 class AppState {
   status = $state<Status>('empty')
+  isDemo = $state(false)
   view = $state<View>('suspects')
   overview = $state.raw<Overview | null>(null)
   analysis = $state.raw<Analysis | null>(null)
@@ -210,6 +211,7 @@ class AppState {
         return
       }
       if (failure.kind === 'worker-died') return // handled by workerDied
+      this.isDemo = false
       this.error = { kind: failure.kind, message: failure.message, fileName: file.name }
       this.status = 'error'
       this.dropClient()
@@ -239,6 +241,7 @@ class AppState {
   }
 
   private workerDied(file: File, failure: WorkerFailure): void {
+    this.isDemo = false
     log.error('analysis worker died', { size: file.size, phase: this.progress?.phase ?? 'ready', message: failure.message })
     writeMarker(null)
     this.crash = { fileName: file.name, fileSize: file.size, phase: this.progress?.phase ?? 'browsing' }
@@ -273,6 +276,7 @@ class AppState {
   }
 
   private resetDumpState(): void {
+    this.isDemo = false
     baselineAbort?.()
     this.overview = null
     this.analysis = null

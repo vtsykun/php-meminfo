@@ -107,3 +107,17 @@ test('shows the recovery screen after a load that never finished', async ({ page
   await page.getByRole('button', { name: 'Open another dump' }).click()
   await expect(page.getByRole('button', { name: 'Open dump…' })).toBeVisible()
 })
+
+test('charts lead to references and show shrinking values when snapshots are reversed', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file]').first().setInputFiles(fixture('parity/leak-before'))
+  await page.getByRole('button', { name: /Growth/ }).click()
+  await page.locator('input[type=file]').last().setInputFiles(fixture('parity/leak-after'))
+  await expect(page.getByRole('heading', { name: 'Largest changes' })).toBeVisible()
+  await expect(page.locator('.change-chart')).toContainText('−')
+  await page.getByRole('button', { name: /Leak suspects/ }).click()
+  const chart = page.getByRole('list', { name: 'Largest retainers by retained memory' })
+  await expect(chart).toBeVisible()
+  await chart.getByRole('button', { name: /Open reference graph/ }).first().click()
+  await expect(page.getByTestId('graph-summary')).toBeVisible()
+})
