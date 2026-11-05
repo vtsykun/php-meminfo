@@ -23,7 +23,10 @@
       "name": "vcpkg",
       "hidden": true,
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-      "cacheVariables": { "MEMINFO_S3": "ON" }
+      "cacheVariables": {
+        "MEMINFO_S3": "ON",
+        "VCPKG_MANIFEST_DIR": "${sourceDir}/extension/deps"
+      }
     },
     { "name": "php-8.4-s3", "displayName": "PHP 8.4 + S3 (vcpkg)", "inherits": ["vcpkg", "php-8.4"] },
     { "name": "php-8.5-s3", "displayName": "PHP 8.5 + S3 (vcpkg)", "inherits": ["vcpkg", "php-8.5"] }

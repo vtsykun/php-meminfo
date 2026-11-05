@@ -33,13 +33,13 @@ MEMINFO_VERSION        ?=
 MEMINFO_COPYRIGHT_YEAR ?=
 MEMINFO_CONFIGURE_FLAGS := $(if $(MEMINFO_VERSION),--with-meminfo-version=$(MEMINFO_VERSION)) \
                            $(if $(MEMINFO_COPYRIGHT_YEAR),--with-meminfo-copyright-year=$(MEMINFO_COPYRIGHT_YEAR)) \
-                           $(if $(MEMINFO_S3),--with-meminfo-s3=$(abspath $(MEMINFO_S3)))
+                           $(if $(MEMINFO_S3),--with-meminfo-s3=$(if $(filter auto yes no,$(MEMINFO_S3)),$(MEMINFO_S3),$(abspath $(MEMINFO_S3))))
 
 # --- Optional S3 transport ---
-# aws-c-s3 and its dependencies come from vcpkg (vcpkg.json at the root):
+# aws-c-s3 and its dependencies come from extension/deps/vcpkg.json:
 #   make vcpkg-install && make build MEMINFO_S3=vcpkg_installed/$(VCPKG_TRIPLET)
 # MEMINFO_S3 is any prefix holding include/aws/s3/s3_client.h and the static
-# libraries; empty builds the extension without S3.
+# libraries; empty/auto prepares dependencies automatically, no disables S3.
 MEMINFO_S3     ?=
 VCPKG_ROOT     ?=
 VCPKG          ?= $(if $(VCPKG_ROOT),$(VCPKG_ROOT)/vcpkg,vcpkg)
@@ -75,23 +75,23 @@ $(EXT_DIR)/.configure-args: FORCE
 	@echo '$(strip $(CONFIGURE_FLAGS) $(MEMINFO_CONFIGURE_FLAGS))' | cmp -s - $@ \
 		|| echo '$(strip $(CONFIGURE_FLAGS) $(MEMINFO_CONFIGURE_FLAGS))' > $@
 
-$(EXT_DIR)/Makefile: $(EXT_DIR)/configure $(EXT_DIR)/.configure-args $(EXT_DIR)/VERSION
+$(EXT_DIR)/Makefile: $(EXT_DIR)/configure $(EXT_DIR)/.configure-args $(EXT_DIR)/VERSION $(EXT_DIR)/deps/s3-deps.sh $(EXT_DIR)/deps/vcpkg.json
 	cd $(EXT_DIR) && ./configure $(CONFIGURE_FLAGS) $(MEMINFO_CONFIGURE_FLAGS)
 
 $(EXT_SO): $(EXT_DIR)/Makefile $(EXT_SOURCES)
 	$(MAKE) -C $(EXT_DIR)
 
 .PHONY: build
-build: $(EXT_SO) ## Build the C extension (usage: make build [MEMINFO_VERSION=X.Y.Z] [MEMINFO_COPYRIGHT_YEAR=YYYY] [MEMINFO_S3=prefix])
+build: $(EXT_SO) ## Build the C extension (usage: make build [MEMINFO_VERSION=X.Y.Z] [MEMINFO_COPYRIGHT_YEAR=YYYY] [MEMINFO_S3=auto|no|prefix])
 	@echo "Built $(EXT_SO) with:"; grep -E '^#define MEMINFO_(VERSION|COPYRIGHT_YEAR|HAVE_S3) ' $(EXT_DIR)/config.h
 
 .PHONY: FORCE
 FORCE:
 
 .PHONY: vcpkg-install
-vcpkg-install: ## Install the optional native dependencies from vcpkg.json (usage: make vcpkg-install [VCPKG_ROOT=...] [VCPKG_TRIPLET=x64-linux])
-	@echo "vcpkg: installing vcpkg.json for $(VCPKG_TRIPLET) into vcpkg_installed/"
-	$(VCPKG) install --triplet=$(VCPKG_TRIPLET) --x-install-root=$(CURDIR)/vcpkg_installed
+vcpkg-install: ## Install native dependencies into an explicit prefix (advanced: make vcpkg-install VCPKG_ROOT=...)
+	@echo "vcpkg: installing extension/deps/vcpkg.json for $(VCPKG_TRIPLET) into vcpkg_installed/"
+	$(VCPKG) install --triplet=$(VCPKG_TRIPLET) --x-manifest-root=$(CURDIR)/extension/deps --x-install-root=$(CURDIR)/vcpkg_installed
 	@echo "Build with S3: make build MEMINFO_S3=vcpkg_installed/$(VCPKG_TRIPLET)"
 
 # Sequential sub-makes, so that `make -j rebuild` cannot build while it cleans.
@@ -412,7 +412,7 @@ clean-ext: ## Remove extension build artifacts and the generated build system
 		$(EXT_DIR)/tests/*.php.tmp $(EXT_DIR)/tests/*.php
 
 .PHONY: clean
-clean: clean-ext clean-ui ## Remove all build artifacts and dependencies
+clean: clean-ext clean-ui ## Remove build artifacts and UI dependencies (native caches stay)
 
 ##@ Help
 

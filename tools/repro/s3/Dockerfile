@@ -1,6 +1,6 @@
 # Builds meminfo with the S3 transport (--with-meminfo-s3) against a selectable
-# PHP version. aws-c-s3 and its dependencies come from vcpkg (vcpkg.json at the
-# root of the repository).
+# PHP version. aws-c-s3 and its dependencies come from vcpkg (extension/deps/vcpkg.json in the
+# repository).
 #
 # Debian rather than Alpine on purpose: vcpkg's prebuilt tool and its ports are
 # glibc-only, and the main image (Dockerfile) stays S3-less.
@@ -43,10 +43,11 @@ RUN set -eux; \
     fi; \
     cmake --version | head -1
 
-# Pinned to the builtin-baseline of vcpkg.json, so the ports match the manifest.
-ARG VCPKG_COMMIT=0c2a9ace1964b818b15f7ae50ba1c42404918a7b
+# Derive the checkout pin from the package manifest.
+COPY extension/deps/vcpkg.json /src/extension/deps/vcpkg.json
 ENV VCPKG_ROOT=/opt/vcpkg VCPKG_FORCE_SYSTEM_BINARIES=1 VCPKG_DISABLE_METRICS=1
 RUN set -eux; \
+    VCPKG_COMMIT=$(php -r 'echo json_decode(file_get_contents("/src/extension/deps/vcpkg.json"), true)["builtin-baseline"];'); \
     git init -q "$VCPKG_ROOT"; \
     git -C "$VCPKG_ROOT" fetch -q --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_COMMIT"; \
     git -C "$VCPKG_ROOT" checkout -q FETCH_HEAD; \
@@ -57,7 +58,6 @@ WORKDIR /src
 # The dependency layer depends on the manifest only: source changes never
 # rebuild OpenSSL and the AWS CRT. A BuildKit cache keeps vcpkg's binary
 # packages across manifest changes too.
-COPY vcpkg.json /src/vcpkg.json
 COPY Makefile /src/Makefile
 RUN --mount=type=cache,target=/root/.cache/vcpkg set -eux; \
     make vcpkg-install VCPKG_ROOT="$VCPKG_ROOT"; \

@@ -6,3 +6,4 @@ cmake-build-*/
 
 # vcpkg manifest-mode install tree (make vcpkg-install)
 vcpkg_installed/
+.meminfo-deps/

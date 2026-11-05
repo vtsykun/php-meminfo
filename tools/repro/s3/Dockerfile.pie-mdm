@@ -1,0 +1,37 @@
+# Candidate verification of MDM's meminfo builder, from this repository root:
+# docker build -f tools/repro/s3/Dockerfile.pie-mdm -t meminfo-pie-mdm:local .
+# The default base is the exact shared base used by mdm/docker/Dockerfile.
+# No production MDM files or package pins are changed by this development recipe.
+ARG MDM_PHP_BASE=harbor.b2serv.local/base_images/php-8.3-rr-2025.1.15:0.14
+FROM ${MDM_PHP_BASE} AS base
+
+FROM base AS builder
+ARG PIE_VERSION=1.5.5
+ARG PIE_SHA256=2ca0dff6868f1b53c095625674deef38ac698588e0a25e4321cd834a5b7553bc
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    $PHPIZE_DEPS git curl ca-certificates zip unzip tar cmake ninja-build pkg-config \
+    linux-libc-dev perl g++ libtool && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL "https://github.com/php/pie/releases/download/$PIE_VERSION/pie.phar" -o /usr/local/bin/pie \
+    && printf '%s  %s\n' "$PIE_SHA256" /usr/local/bin/pie | sha256sum -c - \
+    && chmod +x /usr/local/bin/pie
+COPY composer.json /candidate/composer.json
+COPY extension/ /candidate/extension/
+RUN --mount=type=cache,target=/root/.cache/meminfo-deps,sharing=locked \
+    set -eu; \
+    export COMPOSER_ALLOW_SUPERUSER=1 MEMINFO_DEPS_CACHE=/root/.cache/meminfo-deps; \
+    echo 'INFO [meminfo.build] installing candidate with automatic S3 dependencies'; \
+    pie repository:add path /candidate; \
+    pie install --no-interaction --skip-enable-extension 'vanta/meminfo:*@dev'; \
+    cp "$(php-config --extension-dir)/meminfo.so" /opt/meminfo.so; \
+    php -d extension=/opt/meminfo.so --ri meminfo | grep -F 'S3 transport => yes (aws-c-s3)'; \
+    php -d extension=/opt/meminfo.so -r 'if (phpversion("meminfo") !== trim(file_get_contents("/candidate/extension/VERSION"))) { exit(1); }'; \
+    php -r 'if (PHP_ZTS || PHP_OS_FAMILY !== "Linux") { exit(1); }'; \
+    echo 'INFO [meminfo.build] candidate extension and S3 transport ready'
+
+FROM base AS runtime
+COPY --from=builder /opt/meminfo.so /tmp/meminfo.so
+RUN install -m 0755 /tmp/meminfo.so "$(php-config --extension-dir)/meminfo.so" \
+    && rm /tmp/meminfo.so \
+    && docker-php-ext-enable meminfo \
+    && php --ri meminfo | grep -F 'S3 transport => yes (aws-c-s3)'
+CMD ["php", "--ri", "meminfo"]

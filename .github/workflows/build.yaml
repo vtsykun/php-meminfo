@@ -167,7 +167,7 @@ jobs:
           if [ "${{ matrix.sigqueue }}" = "no" ]; then
             export ac_cv_func_sigqueue=no
           fi
-          ./configure --with-meminfo-version="$version" --with-meminfo-copyright-year="$year"
+          ./configure --with-meminfo-s3=no --with-meminfo-version="$version" --with-meminfo-copyright-year="$year"
           make
           php -d extension=$PWD/modules/meminfo.so --ri meminfo | grep -E '^(Version|Copyright)'
           php -r 'echo "Thread safety: ", PHP_ZTS ? "ZTS" : "NTS", "\n";'
@@ -255,7 +255,7 @@ jobs:
         run: make repro-swoole PHP_VERSION=${{ matrix.php-versions }}
 
   # The S3 transport (--with-meminfo-s3): aws-c-s3 from vcpkg at the baseline
-  # of vcpkg.json, the .phpt suite against a throwaway S3-compatible server
+  # of extension/deps/vcpkg.json, the .phpt suite against a throwaway S3-compatible server
   # (versitygw; MinIO no longer publishes images), with the dump-s3_* tests
   # required to run. One entry without sigqueue() exercises the trigger's
   # kill() path with upload records; macOS only checks that it builds and
@@ -295,9 +295,9 @@ jobs:
           extensions: posix, json, pcntl
           coverage: none
 
-      - name: Check out vcpkg at the baseline of vcpkg.json
+      - name: Check out vcpkg at the baseline of extension/deps/vcpkg.json
         run: |
-          baseline=$(php -r 'echo json_decode(file_get_contents("vcpkg.json"), true)["builtin-baseline"];')
+          baseline=$(php -r 'echo json_decode(file_get_contents("extension/deps/vcpkg.json"), true)["builtin-baseline"];')
           git init -q "$VCPKG_ROOT"
           git -C "$VCPKG_ROOT" fetch -q --depth 1 https://github.com/microsoft/vcpkg.git "$baseline"
           git -C "$VCPKG_ROOT" checkout -q FETCH_HEAD
@@ -308,7 +308,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ matrix.os }}-${{ hashFiles('extension/deps/vcpkg.json') }}
 
       - name: Install aws-c-s3 with vcpkg
         run: make vcpkg-install VCPKG_ROOT="$VCPKG_ROOT"
@@ -478,6 +478,9 @@ jobs:
       # As root: PIE writes into the system extension and ini directories and
       # refuses to call sudo itself without an interactive terminal. The path
       # repository goes into root's PIE config too, or install would not see it.
+      - name: Install native build tools for the default S3 build
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build pkg-config linux-libc-dev git curl zip unzip tar perl g++
+
       - name: Install the extension with PIE
         run: |
           sudo pie repository:add path "$DIST_DIR"

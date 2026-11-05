@@ -351,23 +351,112 @@ The object is `application/json` and carries `x-amz-meta-meminfo-trigger`, `-pid
 
 ### Building with S3
 
-The transport is optional and off by default; a build without it behaves exactly as before. It uses
-[aws-c-s3](https://github.com/awslabs/aws-c-s3) (the AWS CRT, plain C), which comes from
-[vcpkg](https://vcpkg.io) through `vcpkg.json` at the root of the repository, and is linked
-statically into `meminfo.so`:
+The transport is built by default on native glibc Linux and macOS x86_64/arm64. The package
+prepares [vcpkg](https://vcpkg.io) at the baseline in `extension/deps/vcpkg.json`, builds
+[aws-c-s3](https://github.com/awslabs/aws-c-s3) (AWS Common Runtime, plain C), and links its static
+libraries into `meminfo.so`. You do not need to clone vcpkg or pass a library directory:
 
 ```bash
-$ git clone https://github.com/microsoft/vcpkg ~/vcpkg && ~/vcpkg/bootstrap-vcpkg.sh
-$ make vcpkg-install VCPKG_ROOT=~/vcpkg               # into vcpkg_installed/<triplet>
-$ make build MEMINFO_S3=vcpkg_installed/x64-linux     # or arm64-linux, arm64-osx…
+$ pie install vanta/meminfo
 $ php --ri meminfo | grep 'S3 transport'
 S3 transport => yes (aws-c-s3)
 ```
 
-With phpize or PIE, pass the same prefix to configure: `./configure --with-meminfo-s3=DIR`, or
-`pie install vanta/meminfo --with-meminfo-s3=/path/to/vcpkg_installed/x64-linux`. On Linux the CRT
-brings its own OpenSSL; its symbols stay inside `meminfo.so` and cannot clash with the OpenSSL of
-ext/openssl or ext/curl. `make s3-build` builds a Debian image with all of it.
+This is the behavior of the current development revision. The published `0.2.0` package still
+requires the [advanced explicit-prefix build](#advanced-explicit-prefix-builds) until a release
+containing automatic preparation is available.
+
+#### Native build prerequisites
+
+PIE needs PHP 8.1+ to run and the target PHP's `phpize`/`php-config`. In addition to PHP development
+tools, automatic S3 preparation checks git, curl, zip, unzip, tar, make, C/C++ compilers, CMake
+3.21+, Ninja, pkg-config, Perl with `IPC::Cmd`, SHA512 verification support and Linux kernel headers.
+For Debian/Ubuntu (install the target PHP development package separately if needed):
+
+```bash
+$ sudo apt-get update
+$ sudo apt-get install -y build-essential autoconf automake libtool cmake ninja-build \
+    pkg-config linux-libc-dev git curl ca-certificates zip unzip tar perl
+```
+
+On macOS, install Xcode Command Line Tools and the additional tools with Homebrew:
+
+```bash
+$ xcode-select --install
+$ brew install autoconf automake libtool cmake ninja pkg-config
+$ perl -MIPC::Cmd -e 1
+```
+
+Install a target PHP distribution providing development tools as well. The helper checks system
+CMake/Ninja instead of downloading a replacement toolchain. It never runs apt, brew or sudo.
+The initial source build needs network access and can take several minutes; vcpkg and the native
+libraries are pinned by the package manifest. A prerequisite/download/build failure stops
+installation; it never silently produces an extension without S3.
+
+#### Build modes
+
+| Mode | PIE option | Make equivalent | Native dependency downloads |
+|---|---|---|---|
+| Automatic (default) | omitted, or `--with-meminfo-s3=auto` | `make build` / `MEMINFO_S3=auto` | When preparation needs them |
+| No S3 | `--with-meminfo-s3=no` | `make build MEMINFO_S3=no` | None |
+| Existing static libraries | `--with-meminfo-s3=/absolute/prefix` | `MEMINFO_S3=/absolute/prefix` | None |
+
+`yes` is also accepted by configure as an alias for automatic preparation. Explicit empty values
+are rejected. With phpize, use the same `./configure --with-meminfo-s3=...` values. Offline explicit
+prefix/no-S3 builds do not invoke vcpkg; PIE itself still needs its package source available locally.
+
+Automatic preparation currently rejects musl/Alpine and implicit cross-compilation. Use no-S3 mode,
+or supply separately prepared compatible libraries. The compiler target must match the native
+architecture. Use paths without whitespace or shell metacharacters for dependency storage/prefixes;
+phpize itself also rejects whitespace in build paths.
+
+S3 upload still requires PHP 7.1+, non-ZTS and POSIX. Building S3 into the extension does not enable
+uploads by itself: `meminfo.dump_upload` remains empty by default. On Linux the CRT's OpenSSL
+symbols stay private to `meminfo.so`, avoiding clashes with ext/openssl and ext/curl.
+
+#### Cache and build diagnostics
+
+By default, workspace, pinned checkout, logs and binary archives live in `.meminfo-deps/` inside
+the extension build directory. Set `MEMINFO_DEPS_CACHE` to an absolute writable directory to reuse
+storage across builds; never point it at the shipped `extension/deps/` directory. Its `checkouts/`,
+`archives/` and `logs/` directories serve different purposes. Installed libraries always stay in
+the individual build directory's `.meminfo-deps/installed/`, so another build sharing the cache
+cannot replace archives while this extension is linking them. Existing
+`VCPKG_DEFAULT_BINARY_CACHE` and `VCPKG_BINARY_SOURCES` settings take precedence for binary caching.
+Every build still runs vcpkg's ABI evaluation, so compiler/SDK changes are checked before reuse.
+If PHP's `make clean` removed nested static libraries, the helper repairs the incomplete installed
+tree and restores packages from the binary cache on the next configure.
+
+```bash
+$ MEMINFO_DEPS_CACHE=/tmp/meminfo-native-cache pie install vanta/meminfo
+$ MEMINFO_DEPS_CACHE=/tmp/meminfo-native-cache MEMINFO_BUILD_VERBOSE=1 pie -v install vanta/meminfo
+```
+
+PIE hides configure progress at normal verbosity; use both `-v` and `MEMINFO_BUILD_VERBOSE=1` for
+live native build output. Errors include the failing stage and full log path when storage could
+be created. Logs use `logs/build.*` and are retained after failures; remove old logs when no longer
+needed. A lock serializes preparation on a shared vcpkg root and reports its owner after a bounded
+wait. After an interrupted build, retry; remove a stale lock only after confirming its owner stopped.
+An external `VCPKG_ROOT` must be a clean checkout at the manifest baseline; the helper will not
+reset it. No-S3 and explicit-prefix modes bypass automatic preparation and its prerequisite checks.
+
+#### Advanced explicit-prefix builds
+
+For custom/offline native dependencies, prepare a prefix explicitly from a checkout:
+
+```bash
+$ git clone https://github.com/microsoft/vcpkg ~/vcpkg
+$ baseline=$(php -r 'echo json_decode(file_get_contents("extension/deps/vcpkg.json"), true)["builtin-baseline"];')
+$ git -C ~/vcpkg checkout "$baseline"
+$ ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+$ make vcpkg-install VCPKG_ROOT=~/vcpkg
+$ make build MEMINFO_S3=vcpkg_installed/arm64-linux
+```
+
+Use the matching native triplet (`x64-linux`, `arm64-linux`, `x64-osx`, `arm64-osx`). For PIE,
+pass the resulting absolute prefix: `pie install vanta/meminfo --with-meminfo-s3=/absolute/prefix`.
+The prefix must contain `include/aws/s3/s3_client.h` and the static AWS CRT libraries in `lib/`.
+`make s3-build` retains the explicit-prefix Debian development image.
 
 ### Settings
 

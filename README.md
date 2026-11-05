@@ -43,15 +43,23 @@ $ curl -fL --output /tmp/pie.phar https://github.com/php/pie/releases/latest/dow
     && sudo chmod +x /usr/local/bin/pie
 ```
 
-Then install the extension and check that it is loaded:
+Then install the extension, including S3 support, and check that it is loaded:
 
 ```bash
 $ pie install vanta/meminfo
 $ php --ri meminfo
 ```
 
+On supported glibc Linux and macOS x86_64/arm64 builds, the package prepares pinned vcpkg/AWS CRT
+dependencies automatically. Install the [native build tools](doc/process_dump.md#building-with-s3)
+first; the initial source build needs network access and can take several minutes.
+This automatic behavior applies to this development revision; published `0.2.0` still needs the
+[explicit-prefix recipe](doc/process_dump.md#advanced-explicit-prefix-builds) until a release includes it.
+
 | Need | Command |
 |---|---|
+| Without S3 (including Alpine/musl) | `pie install vanta/meminfo --with-meminfo-s3=no` |
+| Build diagnostics | `MEMINFO_BUILD_VERBOSE=1 pie -v install vanta/meminfo` |
 | A specific version | `pie install vanta/meminfo:^0.1` |
 | Another PHP installation (e.g. PHP 7.4 next to 8.4) | `pie install --with-php-config=/usr/bin/php-config7.4 vanta/meminfo` |
 | A custom reported version or copyright year | `pie install vanta/meminfo --with-meminfo-version=0.1.0-custom --with-meminfo-copyright-year=2026` |
@@ -75,20 +83,24 @@ instead (see below).
 
 ### Docker
 
-With PIE, in your own image. PIE is mounted only while the layer builds and does not stay in the
-image. It needs `unzip` or ext-zip:
+With PIE, in your own glibc-based image. Use the same PHP base for builder and runtime so their
+PHP ABI, libc and architecture match. The runtime only needs the statically linked extension:
 
 ```dockerfile
-FROM php:8.4-cli
-
+FROM php:8.4-cli AS base
+FROM base AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    $PHPIZE_DEPS cmake ninja-build pkg-config linux-libc-dev git curl \
+    ca-certificates zip unzip tar perl libtool
 RUN --mount=type=bind,from=ghcr.io/php/pie:bin,source=/pie,target=/usr/local/bin/pie \
-    set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends unzip; \
-    pie install --no-cache vanta/meminfo; \
-    apt-get purge -y --auto-remove unzip; \
-    rm -rf /var/lib/apt/lists/*
+    pie install --no-interaction --skip-enable-extension vanta/meminfo
+FROM base
+COPY --from=builder /usr/local/lib/php/extensions/ /usr/local/lib/php/extensions/
+RUN docker-php-ext-enable meminfo && php --ri meminfo
 ```
+
+No vcpkg checkout or AWS library prefix is needed. For an Alpine image, explicitly disable S3
+with `--with-meminfo-s3=no`. See [build modes and caching](doc/process_dump.md#building-with-s3).
 
 `make docker-build PHP_VERSION=8.1` builds a ready image (`meminfo:php-8.1`) from the repository
 `Dockerfile`; see [Development](doc/development.md) for the Docker test matrix and the IDE setup.
@@ -113,9 +125,9 @@ $ make build PHPIZE=/usr/local/php-7.4/bin/phpize PHP_CONFIG=/usr/local/php-7.4/
 The reported version and copyright year are build arguments (`make build MEMINFO_VERSION=2.1.0`); see
 [Development](doc/development.md#version-and-copyright-year).
 
-Uploading dumps to S3 is optional: `make vcpkg-install` fetches aws-c-s3 with [vcpkg](https://vcpkg.io)
-(`vcpkg.json`), then `make build MEMINFO_S3=vcpkg_installed/<triplet>` links it in (`./configure
---with-meminfo-s3=DIR` without Make). See [Building with S3](doc/process_dump.md#building-with-s3).
+S3 is built by default; `make build MEMINFO_S3=no` produces a lightweight build without native
+S3 dependencies. `MEMINFO_S3=auto` prepares dependencies; an existing prefix is also accepted.
+See [Building with S3](doc/process_dump.md#building-with-s3) for prerequisites and offline builds.
 
 Without Make, from the `extension` directory:
 
@@ -152,7 +164,7 @@ non-ZTS, POSIX. Elsewhere they are ignored with a warning at startup.
 | `meminfo.dump_string_hashes` | `0` | Default of the `string_hashes` dump option, likewise. |
 | `meminfo.auto_mark` | `0` | Every dump starts a new [generation](#generations-and-histograms) first. |
 | `meminfo.track_allocations` | `0` | Record the line of the `new` that created each object. It costs about 6 ns per `new`, and the opcache JIT does not run while it is on. |
-| `meminfo.dump_upload` | empty | `s3://bucket[/prefix]`: also upload every dump the process writes on its own, in the background. Needs a build with `--with-meminfo-s3`; `meminfo.dump_upload_keep_local`, `meminfo.dump_upload_timeout` and `meminfo.s3_region` / `s3_endpoint` / `s3_path_style` go with it — see [Uploading dumps to S3](doc/process_dump.md#uploading-dumps-to-s3). |
+| `meminfo.dump_upload` | empty | `s3://bucket[/prefix]`: also upload every dump the process writes on its own, in the background. Included in default builds; disabled with `--with-meminfo-s3=no`; `meminfo.dump_upload_keep_local`, `meminfo.dump_upload_timeout` and `meminfo.s3_region` / `s3_endpoint` / `s3_path_style` go with it — see [Uploading dumps to S3](doc/process_dump.md#uploading-dumps-to-s3). |
 
 `php -i | grep meminfo` shows what a build resolved. Details, and why `SIGURG`, are in
 [Dumping a running process](doc/process_dump.md#settings).

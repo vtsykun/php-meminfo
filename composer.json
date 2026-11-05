@@ -31,7 +31,7 @@
             },
             {
                 "name": "with-meminfo-s3",
-                "description": "Upload dumps to S3: prefix holding aws-c-s3 and its static libraries, e.g. a vcpkg_installed/<triplet> directory (default: no S3)",
+                "description": "S3 dependencies: auto (default, prepares pinned AWS CRT libraries), no (disable S3), or an existing static library prefix",
                 "needs-value": true
             },
             {

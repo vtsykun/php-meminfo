@@ -57,10 +57,11 @@ target_include_directories(meminfo PRIVATE
 target_compile_definitions(meminfo PRIVATE COMPILE_DL_MEMINFO=1)
 
 # The optional S3 transport (--with-meminfo-s3). With MEMINFO_S3=ON and the vcpkg
-# toolchain (preset php-X.Y-s3), aws-c-s3 comes from vcpkg.json and upload_s3.c
+# toolchain (preset php-X.Y-s3), aws-c-s3 comes from extension/deps/vcpkg.json and upload_s3.c
 # is indexed with MEMINFO_HAVE_S3 on.
 option(MEMINFO_S3 "Index the S3 transport against aws-c-s3 from vcpkg" OFF)
 if(MEMINFO_S3)
+    message(STATUS "meminfo IDE model: S3 manifest ${VCPKG_MANIFEST_DIR}/vcpkg.json")
     find_package(aws-c-s3 CONFIG REQUIRED)
     target_link_libraries(meminfo PRIVATE AWS::aws-c-s3)
     target_compile_definitions(meminfo PRIVATE MEMINFO_HAVE_S3=1)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "name": "meminfo",
-  "description": "Optional native dependencies of the meminfo extension: aws-c-s3 for uploading dumps to S3 (--with-meminfo-s3)",
+  "description": "Native dependencies of the meminfo S3 transport (prepared automatically unless S3 is disabled)",
   "dependencies": [
     "aws-c-s3"
   ],

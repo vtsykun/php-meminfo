@@ -48,3 +48,4 @@ tmp-php.ini
 
 # Configure arguments last used by the top-level Makefile
 .configure-args
+.meminfo-deps/

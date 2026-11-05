@@ -15,8 +15,12 @@ $ make test-one TEST=tests/dump-array.phpt   # a single test, path relative to e
 $ make lint           # php -l over the repository's PHP scripts
 $ make check          # lint + the .phpt suite
 $ make ci             # what CI runs: build + the .phpt suite
-$ make clean          # remove all build artifacts and dependencies
+$ make clean          # remove build artifacts and UI dependencies; native caches stay
 ```
+
+Default source builds include S3 and prepare native libraries automatically. Install the
+[native prerequisites](process_dump.md#building-with-s3) first; `make build MEMINFO_S3=no` skips
+S3 and native downloads. `make rebuild` preserves `.meminfo-deps/` for warm dependency reuse.
 
 To build against a specific PHP installation, override the toolchain variables:
 
@@ -137,9 +141,15 @@ $ make repro-s3-fpm     PHP_VERSION=8.4   # PHP-FPM scenarios: per-pool settings
 $ make s3-shell         PHP_VERSION=8.4   # a shell in the image, the S3 server at http://s3:7070
 ```
 
-`S3_TESTS` narrows `s3-test` to some tests. To build with S3 outside Docker, `make vcpkg-install`
-installs the dependencies into `vcpkg_installed/` and `make build MEMINFO_S3=vcpkg_installed/<triplet>`
-links them in.
+`S3_TESTS` narrows `s3-test` to some tests. Outside Docker, `make build` prepares S3 dependencies
+automatically. The advanced `make vcpkg-install VCPKG_ROOT=...` target uses
+`extension/deps/vcpkg.json` and installs into `vcpkg_installed/`;
+`make build MEMINFO_S3=vcpkg_installed/<triplet>` uses that explicit prefix without bootstrapping.
+See [build modes, cache and diagnostics](process_dump.md#building-with-s3).
+
+The root Alpine image, non-S3 compatibility jobs, OOM engine fixtures and both sides of the
+performance/memory comparisons explicitly use `--with-meminfo-s3=no`. This preserves their
+lightweight toolchains and comparable builds; it does not change PIE/source installation defaults.
 
 IDE setup (CLion)
 -----------------
@@ -163,3 +173,23 @@ Then in CLion:
 
 When switching to a version whose headers are missing, run `make ide PHP_VERSION=X.Y` first — CMake
 stops with that hint otherwise.
+
+The `php-8.4-s3` and `php-8.5-s3` IDE presets use the vcpkg toolchain selected by `VCPKG_ROOT`.
+They set `VCPKG_MANIFEST_DIR` to `extension/deps` before CMake evaluates `project()`, preserving
+manifest-mode dependency discovery after the manifest relocation. Use a fresh CMake build directory
+when changing toolchains; the IDE model remains separate from the phpize build.
+
+Candidate verification of MDM's multi-stage builder uses its exact default PHP base:
+
+```bash
+$ docker build -f tools/repro/s3/Dockerfile.pie-mdm -t meminfo-pie-mdm:local .
+$ docker run --rm --entrypoint php meminfo-pie-mdm:local --ri meminfo
+```
+
+This development recipe installs the local candidate through a PIE path repository, verifies its
+real `extension/VERSION`, and copies only the statically linked extension into the runtime stage.
+It has no consumer-owned vcpkg manifest/bootstrap or S3 prefix argument. Production MDM files and
+its `0.2.0` pin stay intact until a release contains this change. After that release, remove the
+consumer's vcpkg preparation and replace the candidate path repository/constraint with
+`pie install --no-interaction --skip-enable-extension vanta/meminfo:<released-version>`; retain the
+same base in both stages, native tool prerequisites, version/capability checks and single ini enable.

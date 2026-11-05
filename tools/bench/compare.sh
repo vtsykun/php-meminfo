@@ -30,7 +30,7 @@ build() {   # build <extension-source-dir> <build-dir>
         cd "$2"
         make distclean >/dev/null 2>&1 || true
         "$PHPIZE" >/dev/null
-        ./configure --enable-meminfo --with-php-config="$PHP_CONFIG" >/dev/null
+        ./configure --enable-meminfo --with-meminfo-s3=no --with-php-config="$PHP_CONFIG" >/dev/null
         make -j"$(getconf _NPROCESSORS_ONLN)" >/dev/null
     ) || { echo "error: building $1 failed" >&2; exit 1; }
     test -f "$2/modules/meminfo.so"

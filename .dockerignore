@@ -70,3 +70,4 @@ ui
 
 # vcpkg install tree of the host; the S3 image installs its own
 vcpkg_installed
+**/.meminfo-deps

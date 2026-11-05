@@ -34,7 +34,7 @@ COPY tools/repro/oom-hooks/verify-engine.php /src/tools/repro/oom-hooks/verify-e
 COPY tools/repro/oom-hooks/fault_probe.c /src/tools/repro/oom-hooks/fault_probe.c
 COPY tools/repro/oom-hooks/fpm.php /src/tools/repro/oom-hooks/fpm.php
 WORKDIR /src/extension
-RUN set -eu; phpize; ./configure; make -j2; \
+RUN set -eu; phpize; ./configure --with-meminfo-s3=no; make -j2; \
     cc -shared -fPIC -Wall -Wextra -Werror -Wno-unused-parameter $(php-config --includes) \
         /src/tools/repro/oom-hooks/fault_probe.c -o /src/oom_fault.so; \
     php -n /src/tools/repro/oom-hooks/verify-engine.php "$MEMINFO_EXPECT_ENGINE" > oom-engine.json; \

@@ -43,7 +43,7 @@ rm -f "$(php-config --extension-dir)/meminfo.so"
 build() {
     cp -r "$1" "$2"; cd "$2"
     phpize >/dev/null 2>&1
-    ./configure --enable-meminfo >/dev/null 2>&1
+    ./configure --enable-meminfo --with-meminfo-s3=no >/dev/null 2>&1
     make -j"$(nproc)" >/dev/null 2>&1
     cd /
     test -f "$2/modules/meminfo.so"

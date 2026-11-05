@@ -7,9 +7,8 @@ PHP_ARG_WITH(meminfo-version, for the version meminfo reports,
                           (default: the content of extension/VERSION)], no, no)
 
 PHP_ARG_WITH(meminfo-s3, for the S3 dump transport,
-[  --with-meminfo-s3=DIR   Upload dumps to S3 with aws-c-s3 found in DIR, a vcpkg
-                          install prefix such as vcpkg_installed/x64-linux
-                          (default: no)], no, no)
+[  --with-meminfo-s3=MODE  S3 dependencies: auto (default), no, or an existing
+                          static AWS CRT install prefix], auto, no)
 
 PHP_ARG_WITH(meminfo-copyright-year, for the meminfo copyright year,
 [  --with-meminfo-copyright-year=YYYY
@@ -53,15 +52,50 @@ if test "$PHP_MEMINFO" = "yes"; then
   dnl kill() and matches the dump by pid and time.
   AC_CHECK_FUNCS(sigqueue)
 
+  AC_MSG_NOTICE([meminfo S3 dependency mode: $PHP_MEMINFO_S3])
+  case "$PHP_MEMINFO_S3" in
+    auto|yes)
+      if test "$cross_compiling" = "yes"; then
+        AC_MSG_ERROR([automatic S3 dependencies do not support cross-compilation; use an explicit --with-meminfo-s3=DIR or --with-meminfo-s3=no])
+      fi
+      dnl Probe the actual selected compiler (including flags), not just uname.
+      meminfo_compiler_arch=unsupported
+      AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#if !defined(__aarch64__) && !defined(__arm64__)
+#error not arm64
+#endif
+      ]], [[]])], [meminfo_compiler_arch=arm64])
+      AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#if !defined(__x86_64__) || defined(__ILP32__)
+#error not x64
+#endif
+      ]], [[]])], [meminfo_compiler_arch=x64])
+      meminfo_s3_source=`cd "PHP_EXT_SRCDIR(meminfo)" && pwd`
+      meminfo_s3_build=`pwd`
+      if meminfo_s3_dir=`CC="$CC" CXX="$CXX" sh "$meminfo_s3_source/deps/s3-deps.sh" \
+          "$meminfo_s3_source" "$meminfo_s3_build" "$host" "$meminfo_compiler_arch"`; then
+        AC_MSG_NOTICE([meminfo S3 dependencies: $meminfo_s3_dir])
+      else
+        AC_MSG_ERROR([S3 dependency preparation failed; see the meminfo.deps error/log path above. Retry with MEMINFO_BUILD_VERBOSE=1 pie -v install vanta/meminfo, or explicitly select --with-meminfo-s3=no])
+      fi
+      ;;
+    no) ;;
+    "") AC_MSG_ERROR([empty --with-meminfo-s3 value; use auto, no, or an existing prefix]) ;;
+    *) meminfo_s3_dir="$PHP_MEMINFO_S3" ;;
+  esac
+
   dnl The S3 transport links aws-c-s3 and the rest of the AWS CRT statically,
   dnl in dependency order. On Linux the CRT brings s2n and its own OpenSSL:
   dnl --exclude-libs keeps every symbol of those archives out of the dynamic
   dnl symbol table, so they cannot clash with the OpenSSL of ext/openssl or
   dnl ext/curl loaded into the same process.
   if test "$PHP_MEMINFO_S3" != "no"; then
-    meminfo_s3_dir="$PHP_MEMINFO_S3"
-    if test "$meminfo_s3_dir" = "yes" || test ! -f "$meminfo_s3_dir/include/aws/s3/s3_client.h"; then
-      AC_MSG_ERROR([--with-meminfo-s3 needs the prefix holding include/aws/s3/s3_client.h, e.g. --with-meminfo-s3=vcpkg_installed/x64-linux after 'make vcpkg-install'])
+    case "$meminfo_s3_dir" in
+      *[[![:graph:]]]*|*\'*|*\"*|*\`*|*\$*|*\;*|*\&*|*\|*|*\(*|*\)*|*\<*|*\>*|*\\*)
+        AC_MSG_ERROR([S3 dependency prefixes must not contain whitespace or shell metacharacters]) ;;
+    esac
+    if test ! -f "$meminfo_s3_dir/include/aws/s3/s3_client.h"; then
+      AC_MSG_ERROR([--with-meminfo-s3 prefix must contain include/aws/s3/s3_client.h; use --with-meminfo-s3=auto to prepare dependencies automatically])
     fi
 
     AC_MSG_CHECKING([for the AWS CRT libraries in $meminfo_s3_dir/lib])
